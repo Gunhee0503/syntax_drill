@@ -112,8 +112,18 @@ async function handleTts(admin: any, body: any) {
   const id = String(body.id || "");
   const { data: row, error } = await admin.from("drill_sentences").select("*").eq("id", id).maybeSingle();
   if (error || !row) return json({ error: "NOT_FOUND" }, 404);
-  const chunks: Chunk[] = (row.chunks || []).filter((c: Chunk) => String(c.en || "").trim());
+  let chunks: Chunk[] = (row.chunks || []).filter((c: Chunk) => String(c.en || "").trim());
   if (!chunks.length) return json({ error: "EMPTY" }, 400);
+  // 우리말이 빈 의미구가 있으면 먼저 자동 번역해서 채움 (끊기는 그대로)
+  let filled = false;
+  if (chunks.some((c) => !String(c.ko || "").trim())) {
+    const ko = await translateChunks(chunks.map((c) => c.en));
+    if (ko) {
+      chunks = chunks.map((c, i) => ({ en: c.en, ko: String(c.ko || "").trim() || ko[i] || "" }));
+      const { error: eu } = await admin.from("drill_sentences").update({ chunks }).eq("id", id);
+      if (!eu) filled = true;
+    }
+  }
   const v = await voices(admin);
   const vEn = String(body.voice_en || v.en), vKo = String(body.voice_ko || v.ko);
 
@@ -126,13 +136,13 @@ async function handleTts(admin: any, body: any) {
   const ko = joinChunks(koParts, " ");
   const key = await hash([TTS_MODEL, vEn, en.text, vKo, ko.text].join("|"));
   if (row.audio_key === key && row.audio_en && !body.force) {
-    return json({ cached: true, audio_en: row.audio_en, times_en: row.times_en, audio_ko: row.audio_ko, times_ko: row.times_ko });
+    return json({ cached: true, chunks, audio_en: row.audio_en, times_en: row.times_en, audio_ko: row.audio_ko, times_ko: row.times_ko });
   }
 
   const jobs: Promise<any>[] = [ttsWithTimes(vEn, en.text, "en")];
   if (ko.text) jobs.push(ttsWithTimes(vKo, ko.text, "ko"));
   let res: any[];
-  try { res = await Promise.all(jobs); } catch (e) { return json({ error: String((e as Error).message) }, 502); }
+  try { res = await Promise.all(jobs); } catch (e) { console.error("tts", (e as Error).message); return json({ error: String((e as Error).message) }, 502); }
 
   const pathEn = `s/${id}/en-${key}.mp3`;
   const up1 = await admin.storage.from(BUCKET).upload(pathEn, res[0].bytes, { contentType: "audio/mpeg", upsert: true });
@@ -152,7 +162,7 @@ async function handleTts(admin: any, body: any) {
   const upd = { audio_en: pathEn, times_en: timesEn, audio_ko: pathKo, times_ko: timesKo, voice_en: vEn, voice_ko: vKo, audio_key: key };
   const { error: e2 } = await admin.from("drill_sentences").update(upd).eq("id", id);
   if (e2) return json({ error: "DB", detail: e2.message }, 500);
-  return json({ cached: false, ...upd, chars: en.text.length + ko.text.length });
+  return json({ cached: false, ...upd, chunks, filled, chars: en.text.length + ko.text.length });
 }
 
 async function handleNumbers(admin: any, body: any) {
@@ -172,7 +182,7 @@ async function handleNumbers(admin: any, body: any) {
       await admin.storage.from(BUCKET).upload(`${dir}/${n}.mp3`, bytes, { contentType: "audio/mpeg", upsert: true });
     }
   };
-  try { await Promise.all([worker(), worker(), worker()]); } catch (e) { return json({ error: String((e as Error).message) }, 502); }
+  try { await Promise.all([worker(), worker(), worker()]); } catch (e) { console.error("numbers", (e as Error).message); return json({ error: String((e as Error).message) }, 502); }
   const paths: Record<number, string> = {};
   for (let n = 1; n <= upto; n++) paths[n] = `${dir}/${n}.mp3`;
   return json({ voice, paths, generated: need.length });
@@ -205,6 +215,23 @@ async function claude(key: string, payload: any): Promise<Response> {
     r = await go(p2);
   }
   return r;
+}
+
+// 이미 끊어 둔 영어 의미구 → 같은 개수의 우리말 뜻 (실패하면 null)
+async function translateChunks(en: string[]): Promise<string[] | null> {
+  const key = Deno.env.get("ANTHROPIC_API_KEY");
+  if (!key || !en.length) return null;
+  const model = Deno.env.get("VT_AI_MODEL") || "claude-sonnet-5-5";
+  const prompt = `아래는 선생님이 이미 끊어 둔 한 문장의 영어 의미구 ${en.length}개다. 끊기는 바꾸지 말고, 각 의미구의 우리말 뜻만 같은 순서·같은 개수로 써라.\n${JSON.stringify(en)}\nJSON: {"ko":["…"]}`;
+  try {
+    const r = await claude(key, { model, max_tokens: 3000, thinking: { type: "between_tools" }, system: AI_SYSTEM, messages: [{ role: "user", content: prompt }] });
+    if (!r.ok) { console.error("translate", r.status, (await r.text()).slice(0, 300)); return null; }
+    const out = await r.json();
+    const text = (out.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+    const p = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+    const ko = (p.ko || []).map((x: any) => String(x || "").trim());
+    return ko.length === en.length ? ko : null;
+  } catch (e) { console.error("translate", (e as Error).message); return null; }
 }
 
 async function handleAi(body: any) {
@@ -244,6 +271,11 @@ Deno.serve(async (req) => {
     if (body.op === "tts") return await handleTts(admin, body);
     if (body.op === "numbers") return await handleNumbers(admin, body);
     if (body.op === "ai") return await handleAi(body);
+    if (body.op === "translate") {
+      const en = (Array.isArray(body.chunks) ? body.chunks : []).map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 20);
+      const ko = await translateChunks(en);
+      return ko ? json({ ko }) : json({ error: Deno.env.get("ANTHROPIC_API_KEY") ? "AI_UPSTREAM" : "NO_ANTHROPIC_KEY" }, 502);
+    }
     if (body.op === "ping") return json({ ok: true, eleven: !!Deno.env.get("ELEVENLABS_API_KEY"), claude: !!Deno.env.get("ANTHROPIC_API_KEY") });
   } catch (e) {
     console.error(e);
