@@ -802,7 +802,8 @@ function renderPl() {
   C.list = C.list.filter((id) => byId(id));
   if (C.idx >= C.list.length) C.idx = Math.max(0, C.list.length - 1);
   $('plCount').textContent = C.list.length ? `${C.list.length}문장` : '';
-  $('plLesson').textContent = C.lessonTitle ? `📘 ${C.lessonTitle}` : '';
+  const curL = D.lessons.find((l) => l.id === C.lessonId);
+  $('plLesson').textContent = C.lessonTitle ? `📘 ${C.lessonTitle}${curL && curL.published ? ` · ECHO 공개(${curL.class_name || curL.class_code})` : ''}` : '';
   $('plList').innerHTML = C.list.map((id, i) => {
     const s = byId(id);
     return `<li class="${i === C.idx ? 'on' : ''}" data-i="${i}"><span class="n">${i + 1}</span><span class="s">${esc(s.text)}${s.audio_en ? '' : ' <span class="noau">음성 없음</span>'}</span>
@@ -844,7 +845,7 @@ function openLoader() {
         <button class="chip" data-all="every">문장 전체<small>${D.sents.length}</small></button>
       </div></div>
       <div><h4>수업 기록</h4>
-        <ul class="lessons">${D.lessons.map((l) => `<li><span class="d">${esc(l.lesson_date)}</span><span class="t">${esc(l.title || '(제목 없음)')}</span><span class="c">${l.items.filter((id) => byId(id)).length}문장</span>
+        <ul class="lessons">${D.lessons.map((l) => `<li><span class="d">${esc(l.lesson_date)}</span><span class="t">${esc(l.title || '(제목 없음)')}${l.published ? ` <span class="tag src">ECHO · ${esc(l.class_name || l.class_code)}</span>` : ''}</span><span class="c">${l.items.filter((id) => byId(id)).length}문장</span>
           <button class="btn sm" data-ls="${l.id}">불러오기</button><button class="icon" data-lsdel="${l.id}" title="기록 삭제">✕</button></li>`).join('') || '<li><span class="small">아직 저장한 수업 기록이 없어요. 수업 목록을 만든 뒤 \'수업 기록 저장\'을 누르세요.</span></li>'}</ul>
       </div>
       <p class="small">문장 관리에서 문장을 골라 '수업 목록에 넣기'를 해도 됩니다.</p>
@@ -875,6 +876,17 @@ function openLoader() {
     if (lesson && !append) { C.lessonId = lesson.id; C.lessonTitle = `${lesson.lesson_date} ${lesson.title}`; saveClass(); renderPl(); }
   };
 }
+// 허브 반 목록 (ECHO 공개용) — echo 함수가 허브에서 읽어 옴
+let HUB_CLASSES = null;
+async function loadHubClasses() {
+  if (HUB_CLASSES) return HUB_CLASSES;
+  try {
+    const { data, error } = await sb.functions.invoke('echo', { body: { op: 'classes' } });
+    if (error) throw error;
+    HUB_CLASSES = (data.classes || []).sort((a, b) => natural(a.name, b.name));
+  } catch (e) { console.warn('classes', e); return []; }
+  return HUB_CLASSES;
+}
 $('plSave').onclick = () => {
   if (!C.list.length) return toast('수업 목록이 비어 있어요.', true);
   const cur = D.lessons.find((l) => l.id === C.lessonId);
@@ -886,18 +898,30 @@ $('plSave').onclick = () => {
     <div class="mb">
       <label>날짜<input type="date" id="lsDate" value="${esc(cur ? cur.lesson_date : today)}"></label>
       <label>제목<input id="lsTitle" value="${esc(defTitle)}" maxlength="60" placeholder="예: 고2 정신여고반 관계사"></label>
+      <label>ECHO 학생 공개 <span class="small">— 고른 반 학생들이 허브에서 다시 들을 수 있어요</span>
+        <select id="lsClass"><option value="">공개 안 함 (선생님만)</option></select></label>
+      <p class="hint" id="lsClassMsg">반 목록 불러오는 중…</p>
       <p class="hint">지금 수업 목록 ${C.list.length}문장을 이 순서대로 저장해요. 나중에 '지금까지 수업한 문장 전체'로 모아 들을 수 있어요.</p>
     </div>
     <div class="mf">${cur ? '<button class="btn" id="lsNew">새 기록으로 저장</button>' : ''}<span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="lsSave">${cur ? '이 기록 덮어쓰기' : '저장'}</button></div>`, 'sm');
+  loadHubClasses().then((list) => {
+    const sel = $('lsClass'); if (!sel) return;
+    const curCode = cur && cur.published ? cur.class_code : (cur ? '' : store.get('lastEchoClass', ''));
+    sel.innerHTML = '<option value="">공개 안 함 (선생님만)</option>' + list.map((c) => `<option value="${esc(c.code)}" ${c.code === curCode ? 'selected' : ''}>${esc(c.name)} (${esc(c.code)})</option>`).join('');
+    $('lsClassMsg').textContent = list.length ? '' : '허브 반 목록을 불러오지 못했어요. 공개는 나중에 다시 저장하면서 고를 수 있어요.';
+  });
   const save = async (asNew) => {
-    const row = { lesson_date: $('lsDate').value || today, title: $('lsTitle').value.trim(), items: C.list };
+    const code = $('lsClass').value;
+    const cls = (HUB_CLASSES || []).find((c) => c.code === code);
+    store.set('lastEchoClass', code);
+    const row = { lesson_date: $('lsDate').value || today, title: $('lsTitle').value.trim(), items: C.list, class_code: code || null, class_name: cls ? cls.name : null, published: !!code };
     const q = (!asNew && cur) ? sb.from('drill_lessons').update(row).eq('id', cur.id).select().single() : sb.from('drill_lessons').insert(row).select().single();
     const { data, error } = await q;
     if (error) return toast(errText(error), true);
     D.lessons = D.lessons.filter((l) => l.id !== data.id); D.lessons.unshift(data);
     D.lessons.sort((a, b) => String(b.lesson_date).localeCompare(String(a.lesson_date)));
     C.lessonId = data.id; C.lessonTitle = `${data.lesson_date} ${data.title}`; saveClass();
-    closeModal(); renderPl(); toast('수업 기록을 저장했어요.');
+    closeModal(); renderPl(); toast(data.published ? `저장했어요. ${data.class_name || data.class_code} 학생들에게 ECHO로 공개됐어요.` : '수업 기록을 저장했어요.');
   };
   $('lsSave').onclick = () => save(false);
   if (cur) $('lsNew').onclick = () => save(true);
