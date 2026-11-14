@@ -1,0 +1,27 @@
+# PIF 구문 드릴 (syntax_drill)
+
+구문 수업용 음성 드릴. 문장을 의미구로 끊어 듣고, 우리말 의미구를 듣고 영어로 말해 보는 교실용 도구입니다.
+빌드 없이 Vercel에 그대로 올리는 정적 사이트입니다. (1차: 선생님용 · 2차: 학생 복습 예정)
+
+## 화면
+| 탭 | 내용 |
+|---|---|
+| 문장 관리 | 카테고리(1-1, 2-3…), 문장 붙여넣기 → AI 의미구·우리말 초안 → 수정 → 저장 → 음성 생성, 태그·메모·별표 |
+| 수업 | 수업 목록(불러오기: 카테고리·수업 기록·지금까지 수업한 문장 전체·별표), 전체듣기 / 끊어듣기 / 말하기 드릴(우리말→영어) / 직독직해(영어→우리말), 속도 0.6~1.5, 반복, 생각 시간, 번호 읽기, 영어 가리기(첫 글자·가리기), 전체 화면 |
+| 설정 | 영어·우리말 목소리, 연결 상태, 음성 한꺼번에 만들기 |
+
+단축키(수업): Space 재생·멈춤 · ← → 문장 · 1~4 모드 · H 영어 가리기 · K 우리말 · F 전체 화면
+
+## 구조
+- 로그인: 허브(pif-hub)와 같은 Supabase 프로젝트 `beacon-syntax`의 선생님 계정(`staff` 테이블, 이메일·비밀번호).
+- 테이블: `drill_categories`, `drill_sentences`(chunks = [{en, ko}], times_en/ko = 의미구별 [시작, 끝]초), `drill_lessons`(수업 기록), `drill_settings`(목소리). 모두 선생님만 읽기·쓰기 (RLS `is_staff()`).
+- 음성: 비공개 버킷 `drill-audio` (`s/<문장id>/en-<key>.mp3`, `ko-…`, 번호 음성 `num/<voice>/<n>.mp3`).
+- 서버 기능: Edge Function `drill` (`supabase/functions/drill/index.ts`)
+  - `tts`: 영어 문장 전체를 한 번에 생성(ElevenLabs with-timestamps) → 글자별 시간으로 의미구 구간 계산. 우리말 의미구도 같은 방식. 내용이 같으면 다시 만들지 않음.
+  - `numbers`: "Number 1." … 번호 음성 (한 번 만들면 재사용)
+  - `ai`: Claude로 의미구 끊기 + 우리말 뜻 + 태그 초안
+  - 비밀값: `ELEVENLABS_API_KEY`(필수), `ANTHROPIC_API_KEY`(허브와 공용). 선택: `DRILL_TTS_MODEL`(기본 `eleven_multilingual_v2`), `VT_AI_MODEL`
+- DB 변경 기록: `supabase/migrations/`
+
+## 배속
+배속은 브라우저에서 음높이를 유지한 채 바꿉니다(음성을 배속별로 새로 만들지 않음).
