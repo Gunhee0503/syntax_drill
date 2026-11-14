@@ -953,6 +953,7 @@ function syncControls() {
   segOn('speed', O.speed); segOn('rep', O.rep); segOn('think', O.think); segOn('shadow', O.shadow); segOn('enView', O.enView); segOn('koView', O.koView);
   document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.mode === O.mode));
   $('auto').checked = !!O.auto; $('numOn').checked = !!O.numOn;
+  $('shadow').hidden = O.mode !== 'chunk';   // 듣기만/따라 말하기는 끊어듣기에서만
 }
 const segNum = { speed: true, rep: true, think: true, shadow: true };
 ['speed', 'rep', 'think', 'shadow', 'enView', 'koView'].forEach((id) => {
@@ -1118,8 +1119,8 @@ async function playSentence(s, mode, tok) {
         if (!await wait(thinkMs(ch[k]), tok, '영어로 말해 보세요')) return false;
         V.cue = -1; V.enHideFrom = k + 1; drawChunks();
         if (te[k] && !await seg(P.en, enUrl, te[k][0], te[k][1], O.speed, tok)) return false;
-        // 따라 말하기: 정답 영어를 듣고 한 번 더 소리 내어 따라 할 시간
-        if (!await wait(O.shadow ? thinkMs(ch[k]) : 500, tok, O.shadow ? '정답을 따라 말해 보세요' : '')) return false;
+        // 정답 영어를 듣고 한 번 더 소리 내어 따라 할 시간 (직독직해는 항상)
+        if (!await wait(thinkMs(ch[k]), tok, '정답을 따라 말해 보세요')) return false;
       }
       resetV(); drawChunks();
       if (!await wait(300, tok)) return false;
