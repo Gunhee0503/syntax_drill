@@ -222,16 +222,20 @@ async function translateChunks(en: string[]): Promise<string[] | null> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key || !en.length) return null;
   const model = Deno.env.get("VT_AI_MODEL") || "claude-sonnet-5-5";
-  const prompt = `아래는 선생님이 이미 끊어 둔 한 문장의 영어 의미구 ${en.length}개다. 끊기는 바꾸지 말고, 각 의미구의 우리말 뜻만 같은 순서·같은 개수로 써라.\n${JSON.stringify(en)}\nJSON: {"ko":["…"]}`;
-  try {
-    const r = await claude(key, { model, max_tokens: 3000, thinking: { type: "between_tools" }, system: AI_SYSTEM, messages: [{ role: "user", content: prompt }] });
-    if (!r.ok) { console.error("translate", r.status, (await r.text()).slice(0, 300)); return null; }
-    const out = await r.json();
-    const text = (out.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
-    const p = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-    const ko = (p.ko || []).map((x: any) => String(x || "").trim());
-    return ko.length === en.length ? ko : null;
-  } catch (e) { console.error("translate", (e as Error).message); return null; }
+  const prompt = `아래는 선생님이 이미 끊어 둔 한 문장의 영어 의미구 ${en.length}개다. 끊기는 바꾸지 말고, 각 의미구의 우리말 뜻만 같은 순서·같은 개수(정확히 ${en.length}개)로 써라. 의미구를 합치거나 나누지 마라.\n${JSON.stringify(en)}\nJSON: {"ko":["…"]}`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const r = await claude(key, { model, max_tokens: 3000, thinking: { type: "between_tools" }, system: AI_SYSTEM, messages: [{ role: "user", content: prompt }] });
+      if (!r.ok) { console.error("translate", r.status, (await r.text()).slice(0, 300)); continue; }
+      const out = await r.json();
+      const text = (out.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
+      const p = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
+      const ko = (p.ko || []).map((x: any) => String(x || "").trim());
+      if (ko.length === en.length && ko.every(Boolean)) return ko;
+      console.error("translate count mismatch", en.length, ko.length);
+    } catch (e) { console.error("translate", (e as Error).message); }
+  }
+  return null;
 }
 
 async function handleAi(body: any) {

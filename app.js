@@ -513,21 +513,30 @@ function openEditor(s) {
     const i = +box.dataset.i; drafts[i][f] = e.target.value;
     if (f === 'en' || f === 'ko') redrawPairs(i);
   };
-  // lines: 영어 문장들. '/'가 있으면 그 끊기를 그대로 두고 뜻만 받음
+  // lines: 영어 문장들. '/'로 끊은 문장은 그 끊기 그대로 의미구별 번역만 받고(translate),
+  // 안 끊은 문장만 AI가 끊기부터 함(ai)
   const runAi = async (lines, btn, label) => {
     if (btn) { btn.disabled = true; }
-    const msg = $('edAiMsg'); if (msg) msg.textContent = label || '의미구를 끊고 우리말로 옮기는 중…';
+    const msg = $('edAiMsg'); if (msg) msg.textContent = label || '의미구별로 우리말을 옮기는 중…';
     try {
-      const r = await fn('ai', { lines });
-      const items = r.items || [];
-      return lines.map((line, k) => {
-        const it = items.find((x) => x.no === k + 1) || items[k];
-        if (!it || !it.chunks.length) return null;
-        const aiEn = it.chunks.map((c) => c.en), aiKo = it.chunks.map((c) => c.ko);
-        const mine = line.includes('/') ? splitSlash(line).filter(Boolean) : null;
-        if (mine && mine.length === aiEn.length) return { en: mine.join(' / '), ko: aiKo.join(' / '), tags: (it.tags || []).join(', ') };
-        return { en: aiEn.join(' / '), ko: aiKo.join(' / '), tags: (it.tags || []).join(', ') };
+      const out = lines.map(() => null);
+      const cut = [], whole = [];
+      lines.forEach((l, k) => (l.includes('/') ? cut : whole).push(k));
+      const jobs = cut.map(async (k) => {
+        const en = splitSlash(lines[k]).filter(Boolean);
+        const ko = await translate(en);
+        out[k] = { en: en.join(' / '), ko: ko ? ko.join(' / ') : '', tags: '' };
       });
+      if (whole.length) jobs.push((async () => {
+        const r = await fn('ai', { lines: whole.map((k) => lines[k]) });
+        const items = r.items || [];
+        whole.forEach((k, n) => {
+          const it = items.find((x) => x.no === n + 1) || items[n];
+          if (it && it.chunks.length) out[k] = { en: it.chunks.map((c) => c.en).join(' / '), ko: it.chunks.map((c) => c.ko).join(' / '), tags: (it.tags || []).join(', ') };
+        });
+      })());
+      await Promise.all(jobs);
+      return out;
     } catch (e) { toast(errText(e), true); return null; }
     finally { if (btn) btn.disabled = false; if (msg) msg.textContent = ''; }
   };
