@@ -4,8 +4,8 @@
 (() => {
 'use strict';
 
-const SB_URL = 'https://ucacbqkmckucahvsowtu.supabase.co';
-const SB_KEY = 'sb_publishable_Eh7x8AdkJx44szuHJtIbAQ__LmzxNac';
+const SB_URL = 'https://kyboczqmdrjkubklajtb.supabase.co';  // Supabase 프로젝트: syntax-drill (허브와 분리)
+const SB_KEY = 'sb_publishable_ftGo0kcR3GjcT6UM4giMxA_6Ca5qahQ';
 const sb = window.supabase.createClient(SB_URL, SB_KEY, { auth: { persistSession: true, autoRefreshToken: true, storageKey: 'pif-drill-auth' } });
 
 const VOICES = {
@@ -37,6 +37,8 @@ function toast(msg, err) {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast' + (err ? ' err' : ''); }, err ? 5200 : 2600);
 }
 const ERR = {
+  'User already registered': '이미 가입된 이메일이에요. 로그인해 주세요.',
+  'Password should be': '비밀번호는 8자 이상으로 해 주세요.',
   NO_ELEVENLABS_KEY: '일레븐랩스 API 키가 아직 등록되지 않았어요. Supabase에 ELEVENLABS_API_KEY를 등록해 주세요.',
   NO_ANTHROPIC_KEY: 'AI 초안 기능의 키가 없어요. 직접 끊기로 입력해 주세요.',
   NOT_STAFF: '선생님 계정만 쓸 수 있어요.',
@@ -110,7 +112,7 @@ async function boot() {
   const { data: ok, error } = await sb.rpc('is_staff');
   if (error || ok !== true) {
     await sb.auth.signOut();
-    return showGate('선생님으로 등록된 이메일이 아니에요. 허브 관리자에서 선생님 등록을 먼저 해 주세요.');
+    return showGate('선생님으로 등록된 이메일이 아니에요. 원장님께 설정 → 선생님 계정에서 이메일 등록을 요청하세요.');
   }
   $('meEmail').textContent = session.user.email || '';
   $('gate').hidden = true; $('app').hidden = false;
@@ -121,7 +123,7 @@ async function boot() {
 }
 function showGate(msg) {
   $('app').hidden = true; $('gate').hidden = false;
-  $('loginMsg').textContent = msg || '';
+  $('loginMsg').className = 'msg'; $('loginMsg').textContent = msg || '';
 }
 $('loginForm').onsubmit = async (e) => {
   e.preventDefault();
@@ -132,6 +134,24 @@ $('loginForm').onsubmit = async (e) => {
     await boot();
   } catch (err) { $('loginMsg').textContent = errText(err); }
   $('go').disabled = false;
+};
+$('signup').onclick = async () => {
+  const email = $('em').value.trim().toLowerCase(), password = $('pw').value;
+  $('loginMsg').className = 'msg';
+  if (!email || password.length < 8) { $('loginMsg').textContent = '이메일과 8자 이상 비밀번호를 입력한 뒤 눌러 주세요.'; return; }
+  const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.origin + location.pathname } });
+  if (error) { $('loginMsg').textContent = errText(error); return; }
+  if (data.session) return boot();
+  $('loginMsg').className = 'msg ok';
+  $('loginMsg').textContent = '메일함에서 확인 링크를 눌러 주세요. 링크를 누른 뒤 이 화면에서 로그인하면 됩니다.';
+};
+$('reset').onclick = async () => {
+  const email = $('em').value.trim();
+  $('loginMsg').className = 'msg';
+  if (!email) { $('loginMsg').textContent = '이메일을 먼저 입력해 주세요.'; return; }
+  const { error } = await sb.auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname });
+  if (error) { $('loginMsg').textContent = errText(error); return; }
+  $('loginMsg').className = 'msg ok'; $('loginMsg').textContent = '비밀번호 재설정 메일을 보냈어요.';
 };
 $('logout').onclick = async () => { stop(); await sb.auth.signOut(); showGate(); };
 
@@ -1030,7 +1050,31 @@ function voiceSelect(sel, custom, list, cur) {
   custom.hidden = known; custom.value = known ? '' : cur;
   sel.onchange = () => { custom.hidden = sel.value !== '__custom'; };
 }
+async function renderStaff() {
+  const { data, error } = await sb.from('staff').select('*').order('created_at');
+  if (error) { $('staffList').innerHTML = `<li>${esc(errText(error))}</li>`; return; }
+  const me = ($('meEmail').textContent || '').toLowerCase();
+  const owner = data.some((s) => s.email === me && s.role === 'owner');
+  $('staffList').innerHTML = data.map((s) => `<li><b>${s.role === 'owner' ? '👑' : '•'}</b> ${esc(s.name || '')} <span class="small">${esc(s.email)}</span>${owner && s.email !== me ? ` <button class="icon" data-rmstaff="${esc(s.email)}" title="삭제">✕</button>` : ''}</li>`).join('');
+  $('staffAdd').hidden = !owner;
+}
+$('staffList').onclick = async (e) => {
+  const b = e.target.closest('[data-rmstaff]'); if (!b) return;
+  if (!await confirmBox('선생님 삭제', `${b.dataset.rmstaff} 계정의 사용 권한을 없앨까요?`, '삭제', true)) return;
+  const { error } = await sb.from('staff').delete().eq('email', b.dataset.rmstaff);
+  if (error) toast(errText(error), true); renderStaff();
+};
+$('staffAdd').onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $('stEmail').value.trim().toLowerCase(), name = $('stName').value.trim();
+  if (!email.includes('@')) return;
+  const { error } = await sb.from('staff').insert({ email, name: name || null, role: 'teacher' });
+  if (error) return toast(errText(error), true);
+  $('stEmail').value = ''; $('stName').value = ''; renderStaff();
+  toast('등록했어요. 그 선생님은 로그인 화면에서 "처음이면 계정 만들기"로 가입하면 됩니다.');
+};
 function renderSettings() {
+  renderStaff();
   voiceSelect($('vEn'), $('vEnCustom'), VOICES.en, D.voices.en);
   voiceSelect($('vKo'), $('vKoCustom'), VOICES.ko, D.voices.ko);
   $('vMsg').textContent = ''; $('bulkMsg').textContent = '';
@@ -1064,6 +1108,16 @@ $('bulkTts').onclick = async () => {
   $('bulkMsg').textContent = `${n || 0}개 완료`;
 };
 
-sb.auth.onAuthStateChange((ev) => { if (ev === 'SIGNED_OUT') showGate(); });
+sb.auth.onAuthStateChange((ev) => {
+  if (ev === 'SIGNED_OUT') showGate();
+  if (ev === 'PASSWORD_RECOVERY') setTimeout(() => {
+    openModal(`<div class="mh"><h3>새 비밀번호</h3></div><div class="mb"><label>새 비밀번호 (8자 이상)<input type="password" id="npw" autocomplete="new-password"></label><p class="msg" id="npwMsg"></p></div><div class="mf"><button class="btn primary" id="npwGo">바꾸기</button></div>`, 'sm');
+    $('npwGo').onclick = async () => {
+      const { error } = await sb.auth.updateUser({ password: $('npw').value });
+      if (error) { $('npwMsg').textContent = errText(error); return; }
+      closeModal(); toast('비밀번호를 바꿨어요.');
+    };
+  }, 300);
+});
 boot();
 })();

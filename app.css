@@ -251,3 +251,10 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
   .sent{grid-template-columns:22px 1fr auto}
   .sent .no{display:none}
 }
+
+.gate-sub{display:flex;justify-content:space-between;margin-top:8px}
+.gcard .gate-sub .btn{margin-top:0;padding:5px 8px}
+.staffadd{display:grid;grid-template-columns:1fr 1.4fr auto;gap:8px;margin-top:12px}
+.staffadd input{margin-top:0}
+.staffadd .btn{margin-top:0}
+.status .icon{width:24px;height:24px;font-size:12px}

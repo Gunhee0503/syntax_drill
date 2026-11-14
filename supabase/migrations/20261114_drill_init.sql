@@ -1,5 +1,31 @@
 -- 구문 드릴 (별도 사이트 pif-drill) — 1차: 선생님용
--- Supabase 프로젝트: beacon-syntax (허브와 같은 로그인·staff 테이블 사용). 이미 적용됨.
+-- Supabase 프로젝트: syntax-drill (kyboczqmdrjkubklajtb). 이미 적용됨.
+create table public.staff (
+  email text primary key check (email = lower(email)),
+  role text not null default 'teacher' check (role in ('owner','teacher')),
+  name text,
+  created_at timestamptz not null default now()
+);
+create or replace function public.jwt_email() returns text language sql stable set search_path = '' as $$
+  select lower(nullif(auth.jwt() ->> 'email', ''))
+$$;
+create or replace function public.is_staff() returns boolean language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.staff s where s.email = public.jwt_email())
+$$;
+create or replace function public.is_owner() returns boolean language sql stable security definer set search_path = '' as $$
+  select exists (select 1 from public.staff s where s.email = public.jwt_email() and s.role = 'owner')
+$$;
+revoke execute on function public.is_staff() from public, anon;
+revoke execute on function public.is_owner() from public, anon;
+grant execute on function public.is_staff() to authenticated, service_role;
+grant execute on function public.is_owner() to authenticated, service_role;
+alter table public.staff enable row level security;
+create policy staff_select on public.staff for select to authenticated using (public.is_staff());
+create policy staff_owner_insert on public.staff for insert to authenticated with check (public.is_owner());
+create policy staff_owner_update on public.staff for update to authenticated using (public.is_owner()) with check (public.is_owner());
+create policy staff_owner_delete on public.staff for delete to authenticated using (public.is_owner() and email <> public.jwt_email());
+-- 처음 등록: insert into public.staff(email, role, name) values ('<원장 이메일>','owner','원장');
+
 create table public.drill_categories (
   code text primary key check (char_length(code) between 1 and 20),
   title text,

@@ -13,14 +13,15 @@
 단축키(수업): Space 재생·멈춤 · ← → 문장 · 1~4 모드 · H 영어 가리기 · K 우리말 · F 전체 화면
 
 ## 구조
-- 로그인: 허브(pif-hub)와 같은 Supabase 프로젝트 `beacon-syntax`의 선생님 계정(`staff` 테이블, 이메일·비밀번호).
+- Supabase 프로젝트: **`syntax-drill`** (허브의 `beacon-syntax`와 분리, 서울 리전).
+- 로그인: `staff` 테이블에 등록된 이메일만 사용 (이메일·비밀번호, 첫 사용 시 '처음이면 계정 만들기'). 원장(owner)은 설정 탭에서 선생님을 추가·삭제.
 - 테이블: `drill_categories`, `drill_sentences`(chunks = [{en, ko}], times_en/ko = 의미구별 [시작, 끝]초), `drill_lessons`(수업 기록), `drill_settings`(목소리). 모두 선생님만 읽기·쓰기 (RLS `is_staff()`).
 - 음성: 비공개 버킷 `drill-audio` (`s/<문장id>/en-<key>.mp3`, `ko-…`, 번호 음성 `num/<voice>/<n>.mp3`).
 - 서버 기능: Edge Function `drill` (`supabase/functions/drill/index.ts`)
   - `tts`: 영어 문장 전체를 한 번에 생성(ElevenLabs with-timestamps) → 글자별 시간으로 의미구 구간 계산. 우리말 의미구도 같은 방식. 내용이 같으면 다시 만들지 않음.
   - `numbers`: "Number 1." … 번호 음성 (한 번 만들면 재사용)
   - `ai`: Claude로 의미구 끊기 + 우리말 뜻 + 태그 초안
-  - 비밀값: `ELEVENLABS_API_KEY`(필수), `ANTHROPIC_API_KEY`(허브와 공용). 선택: `DRILL_TTS_MODEL`(기본 `eleven_multilingual_v2`), `VT_AI_MODEL`
+  - 비밀값: `ELEVENLABS_API_KEY`(필수), `ANTHROPIC_API_KEY`. 선택: `DRILL_TTS_MODEL`(기본 `eleven_multilingual_v2`), `VT_AI_MODEL`
 - DB 변경 기록: `supabase/migrations/`
 
 ## 배속

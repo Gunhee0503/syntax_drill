@@ -6,7 +6,7 @@
 <title>PIF 구문 드릴</title>
 <meta name="robots" content="noindex">
 <link rel="icon" href="favicon.ico">
-<link rel="stylesheet" href="app.css?v=1">
+<link rel="stylesheet" href="app.css?v=2">
 </head>
 <body>
 
@@ -19,10 +19,11 @@
   </div>
   <form class="gcard" id="loginForm" autocomplete="on">
     <h2>선생님 로그인</h2>
-    <p class="hint">허브 관리자와 같은 이메일·비밀번호를 씁니다.</p>
+    <p class="hint">원장님이 등록한 이메일만 쓸 수 있어요. 처음이면 이메일·비밀번호를 입력하고 "처음이면 계정 만들기"를 누르세요.</p>
     <label>이메일<input id="em" type="email" autocomplete="username" required></label>
     <label>비밀번호<input id="pw" type="password" autocomplete="current-password" required></label>
     <button class="btn primary wide" id="go" type="submit">로그인</button>
+    <div class="gate-sub"><button type="button" class="btn ghost sm" id="signup">처음이면 계정 만들기</button><button type="button" class="btn ghost sm" id="reset">비밀번호를 잊었어요</button></div>
     <p class="msg" id="loginMsg"></p>
   </form>
 </div>
@@ -161,6 +162,16 @@
         <p class="msg" id="vMsg"></p>
       </div>
       <div class="card">
+        <h3>선생님 계정</h3>
+        <p class="hint">여기 등록된 이메일만 로그인할 수 있어요. 원장님 계정에서만 추가·삭제할 수 있습니다.</p>
+        <ul class="status" id="staffList"><li>불러오는 중…</li></ul>
+        <form id="staffAdd" class="staffadd" hidden>
+          <input id="stName" placeholder="이름 (예: 김은서T)" maxlength="20">
+          <input id="stEmail" type="email" placeholder="이메일" required>
+          <button class="btn primary" type="submit">추가</button>
+        </form>
+      </div>
+      <div class="card">
         <h3>연결 상태</h3>
         <ul class="status" id="status"><li>확인 중…</li></ul>
         <button class="btn" id="ping">다시 확인</button>
@@ -182,6 +193,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=2"></script>
+<script src="app.js?v=3"></script>
 </body>
 </html>
