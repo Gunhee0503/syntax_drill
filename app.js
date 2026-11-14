@@ -431,25 +431,26 @@ const ttsQueue = [];
 /* ---------- 문장 편집 ---------- */
 // 끊어 둔 영어 의미구 → 같은 개수의 우리말 (실패하면 null)
 async function translate(en) {
-  try { const r = await fn('translate', { chunks: en }); return Array.isArray(r.ko) && r.ko.length === en.length ? r.ko : null; }
-  catch (e) { toast(errText(e), true); return null; }
+  try {
+    const r = await fn('translate', { chunks: en });
+    if (Array.isArray(r && r.ko) && r.ko.length === en.length) return r.ko;
+    console.warn('translate: unexpected', r);
+    toast('번역 결과를 받지 못했어요. 다시 눌러 주세요.', true); return null;
+  } catch (e) { toast('자동 번역 실패: ' + errText(e), true); return null; }
 }
-function splitSlash(s) { return String(s || '').split('/').map((x) => x.trim()); }
+function splitSlash(s) { return String(s || '').split(/[\/／]/).map((x) => x.trim()); }
+// 편집 초안: en = '/'로 끊은 영어 한 줄, ko = 의미구별 우리말 배열
 function draftFrom(s) {
-  return { id: s ? s.id : null, en: s ? enLine(s) : '', ko: s ? koLine(s) : '', tags: s ? (s.tags || []).join(', ') : '', memo: s ? s.memo || '' : '' };
+  return { id: s ? s.id : null, en: s ? enLine(s) : '', ko: s ? chunksOf(s).map((c) => c.ko || '') : [], tags: s ? (s.tags || []).join(', ') : '', memo: s ? s.memo || '' : '' };
 }
 function checkDraft(d) {
   const en = splitSlash(d.en).filter(Boolean);
-  const koRaw = splitSlash(d.ko);
-  const ko = d.ko.trim() ? koRaw : [];
+  const chunks = en.map((e, i) => ({ en: e, ko: String(d.ko[i] || '').trim() }));
+  const empty = chunks.filter((c) => !c.ko).length;
   let warn = '';
   if (!en.length) warn = '영어 문장을 입력해 주세요.';
-  else if (ko.length > en.length) warn = `우리말이 ${ko.length}개로 영어 의미구(${en.length}개)보다 많아요. '/' 개수를 맞춰 주세요.`;
-  else if (ko.length && ko.length < en.length) warn = `우리말이 ${ko.length}개, 영어가 ${en.length}개예요. 비어 있는 의미구는 말하기 드릴에서 건너뜁니다.`;
-  else if (!ko.length) warn = '우리말 뜻이 없으면 말하기 드릴·직독직해를 할 수 없어요.';
-  const chunks = en.map((e, i) => ({ en: e, ko: (ko[i] || '').trim() }));
-  const block = !en.length || ko.length > en.length;
-  return { chunks, warn, block };
+  else if (empty) warn = `우리말이 빈 의미구 ${empty}개 — 비워 두면 음성 만들 때 자동으로 번역돼요.`;
+  return { chunks, warn, block: !en.length };
 }
 function openEditor(s) {
   const isNew = !s;
@@ -464,11 +465,12 @@ function openEditor(s) {
         <div id="edNewCat" hidden><label>새 카테고리 번호<input id="edNewCode" placeholder="예: 2-3" maxlength="20"></label></div>
       </div>
       ${isNew ? `<div class="ed-paste">
-        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장. 왼쪽 버튼은 '/'로 끊은 그대로 의미구마다 우리말을 붙이고, 오른쪽 버튼은 끊기부터 자동으로 해요. 결과는 아래에서 고칠 수 있어요.</span>
-          <textarea id="edPaste" placeholder="The students who studied hard passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
+        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장, 의미구는 '/'로 끊기</span>
+          <textarea id="edPaste" placeholder="The students / who studied hard / passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
         <div class="row">
-          <button class="btn primary" id="edDirect" title="'/'로 끊은 그대로, 의미구마다 우리말 뜻을 자동으로 붙여요">끊은 문장 넣기 (우리말 자동 번역)</button>
-          <button class="btn" id="edAi" title="끊기부터 AI가 하고 우리말도 붙여요">문장 넣기 (자동 끊기·번역)</button>
+          <button class="btn primary" id="edManual" title="끊은 그대로 넣고, 우리말은 의미구마다 직접 입력">직접 입력 (우리말 직접 쓰기)</button>
+          <button class="btn" id="edDirect" title="'/'로 끊은 그대로 두고, 우리말만 자동 번역">우리말 자동 번역</button>
+          <button class="btn" id="edAi" title="'/'를 무시하고 끊기부터 자동으로">자동 끊기·번역</button>
           <span class="small" id="edAiMsg"></span>
         </div>
       </div>` : ''}
@@ -480,132 +482,127 @@ function openEditor(s) {
       <button class="btn ghost" data-close>취소</button>
       <button class="btn primary" id="edSave">저장</button>
     </div>`);
-  const draw = () => {
-    $('edItems').innerHTML = drafts.map((d, i) => {
-      const r = checkDraft(d);
-      return `<div class="ed-item" data-i="${i}">
+  const rowsHtml = (d) => {
+    const r = checkDraft(d);
+    return `${r.chunks.map((c, k) => `<div class="krow"><span class="kn">${k + 1}</span><span class="ken">${esc(c.en)}</span><input class="ko" data-k="${k}" value="${esc(c.ko)}" placeholder="우리말 뜻"></div>`).join('')}
+      ${r.warn ? `<div class="warn">${esc(r.warn)}</div>` : ''}`;
+  };
+  const draw = (focus) => {
+    $('edItems').innerHTML = drafts.map((d, i) => `<div class="ed-item" data-i="${i}">
         <div class="ih">${isNew ? `문장 ${i + 1}` : ''}<span class="grow"></span>
-          <button class="btn ghost sm" data-x="tr" title="지금 끊은 그대로 우리말만 다시 번역">우리말 다시 번역</button>
+          <button class="btn ghost sm" data-x="tr" title="빈 칸만 자동 번역 (다 차 있으면 전부 다시)">우리말 자동 번역</button>
           <button class="btn ghost sm" data-x="ai" title="의미구 끊기부터 다시">AI로 다시 끊기</button>
           ${isNew ? '<button class="icon" data-x="rm" title="빼기">✕</button>' : ''}</div>
         <label>영어 <span class="small">의미구는 / 로 끊기</span><input class="en" data-f="en" value="${esc(d.en)}"></label>
-        <label>우리말 뜻 <span class="small">영어와 같은 개수로 / 로 끊기</span><input class="ko" data-f="ko" value="${esc(d.ko)}"></label>
-        <div class="pairs">${r.chunks.map((c) => `<div class="pair ${c.ko ? '' : 'miss'}"><b>${esc(c.en)}</b><i>${esc(c.ko || '뜻 없음')}</i></div>`).join('')}</div>
-        ${r.warn ? `<div class="warn">${esc(r.warn)}</div>` : ''}
+        <div class="kgrid">${rowsHtml(d)}</div>
         <div class="two">
           <label>태그 <span class="small">쉼표로 구분 (예: 관계대명사, 분사구문)</span><input data-f="tags" value="${esc(d.tags)}"></label>
           <label>출제 포인트 메모<input data-f="memo" value="${esc(d.memo)}" placeholder="예: who → 주격 관계대명사, 동사 수일치"></label>
         </div>
-      </div>`;
-    }).join('') || '<p class="small" style="text-align:center;padding:16px 0">문장을 붙여넣고 위 버튼을 눌러 주세요.</p>';
+      </div>`).join('') || '<p class="small" style="text-align:center;padding:16px 0">문장을 붙여넣고 위 버튼을 눌러 주세요.</p>';
+    if (focus) { const el = $('edItems').querySelector(focus); if (el) el.focus(); }
   };
-  const redrawPairs = (i) => {
-    const box = $('edItems').querySelector(`.ed-item[data-i="${i}"]`); if (!box) return;
-    const r = checkDraft(drafts[i]);
-    box.querySelector('.pairs').innerHTML = r.chunks.map((c) => `<div class="pair ${c.ko ? '' : 'miss'}"><b>${esc(c.en)}</b><i>${esc(c.ko || '뜻 없음')}</i></div>`).join('');
-    let w = box.querySelector('.warn');
-    if (r.warn) { if (!w) { w = document.createElement('div'); w.className = 'warn'; box.querySelector('.pairs').after(w); } w.textContent = r.warn; } else if (w) w.remove();
+  const redrawRows = (i) => {
+    const box = $('edItems').querySelector(`.ed-item[data-i="${i}"]`); if (box) box.querySelector('.kgrid').innerHTML = rowsHtml(drafts[i]);
   };
   draw();
   $('edCat').onchange = () => { $('edNewCat').hidden = $('edCat').value !== '__new'; if ($('edCat').value === '__new') $('edNewCode').focus(); };
   $('edItems').oninput = (e) => {
-    const f = e.target.dataset.f; const box = e.target.closest('.ed-item'); if (!f || !box) return;
-    const i = +box.dataset.i; drafts[i][f] = e.target.value;
-    if (f === 'en' || f === 'ko') redrawPairs(i);
+    const box = e.target.closest('.ed-item'); if (!box) return;
+    const i = +box.dataset.i;
+    if (e.target.dataset.k != null) {
+      drafts[i].ko[+e.target.dataset.k] = e.target.value;
+      const w = box.querySelector('.warn'); const r = checkDraft(drafts[i]);
+      if (w) { if (r.warn) w.textContent = r.warn; else w.remove(); }
+      return;
+    }
+    const f = e.target.dataset.f; if (!f) return;
+    drafts[i][f] = e.target.value;
+    if (f === 'en') redrawRows(i);
   };
-  // lines: 영어 문장들. '/'로 끊은 문장은 그 끊기 그대로 의미구별 번역만 받고(translate),
-  // 안 끊은 문장만 AI가 끊기부터 함(ai)
-  const runAi = async (lines, btn, label) => {
-    if (btn) { btn.disabled = true; }
-    const msg = $('edAiMsg'); if (msg) msg.textContent = label || '의미구별로 우리말을 옮기는 중…';
-    try {
-      const out = lines.map(() => null);
-      const cut = [], whole = [];
-      lines.forEach((l, k) => (l.includes('/') ? cut : whole).push(k));
-      const jobs = cut.map(async (k) => {
-        const en = splitSlash(lines[k]).filter(Boolean);
-        const ko = await translate(en);
-        out[k] = { en: en.join(' / '), ko: ko ? ko.join(' / ') : '', tags: '' };
-      });
-      if (whole.length) jobs.push((async () => {
-        const r = await fn('ai', { lines: whole.map((k) => lines[k]) });
-        const items = r.items || [];
-        whole.forEach((k, n) => {
-          const it = items.find((x) => x.no === n + 1) || items[n];
-          if (it && it.chunks.length) out[k] = { en: it.chunks.map((c) => c.en).join(' / '), ko: it.chunks.map((c) => c.ko).join(' / '), tags: (it.tags || []).join(', ') };
-        });
-      })());
-      await Promise.all(jobs);
-      return out;
-    } catch (e) { toast(errText(e), true); return null; }
-    finally { if (btn) btn.disabled = false; if (msg) msg.textContent = ''; }
+  // 우리말 칸에서 Enter → 다음 칸
+  $('edItems').onkeydown = (e) => {
+    if (e.key !== 'Enter' || !e.target.matches('input.ko')) return;
+    e.preventDefault();
+    const all = [...$('edItems').querySelectorAll('input.ko')];
+    const n = all[all.indexOf(e.target) + 1]; if (n) n.focus(); else $('edSave').focus();
+  };
+  const busy = (on, msg) => {
+    ['edManual', 'edDirect', 'edAi'].forEach((id) => { if ($(id)) $(id).disabled = on; });
+    if ($('edAiMsg')) $('edAiMsg').textContent = on ? msg : '';
+  };
+  // 안 끊은 문장들 → AI가 끊기·번역
+  const aiCut = async (lines) => {
+    const r = await fn('ai', { lines });
+    const items = r.items || [];
+    return lines.map((_, n) => {
+      const it = items.find((x) => x.no === n + 1) || items[n];
+      return it && it.chunks.length ? { en: it.chunks.map((c) => c.en).join(' / '), ko: it.chunks.map((c) => c.ko || ''), tags: (it.tags || []).join(', ') } : null;
+    });
   };
   $('edItems').onclick = async (e) => {
     const b = e.target.closest('[data-x]'); if (!b) return;
     const i = +b.closest('.ed-item').dataset.i;
     if (b.dataset.x === 'rm') { drafts.splice(i, 1); draw(); return; }
-    if (b.dataset.x === 'tr') {
-      const en = splitSlash(drafts[i].en).filter(Boolean); if (!en.length) return;
-      b.disabled = true; const ko = await translate(en); b.disabled = false;
-      if (ko) { drafts[i].en = en.join(' / '); drafts[i].ko = ko.join(' / '); draw(); }
-      return;
-    }
-    if (b.dataset.x === 'ai') {
-      const parts = splitSlash(drafts[i].en).filter(Boolean);
-      if (!parts.length) return;
-      const line = b.dataset.x === 'tr' ? parts.join(' / ') + (parts.length === 1 ? ' /' : '') : parts.join(' ');
-      const out = await runAi([line], b, b.dataset.x === 'tr' ? '우리말로 옮기는 중…' : '');
-      if (out && out[0]) {
-        const keep = b.dataset.x === 'tr' ? { en: parts.join(' / ') } : {};
-        drafts[i] = { ...drafts[i], en: out[0].en, ko: out[0].ko, ...keep, tags: drafts[i].tags || out[0].tags }; draw();
+    const en = splitSlash(drafts[i].en).filter(Boolean); if (!en.length) return;
+    b.disabled = true;
+    try {
+      if (b.dataset.x === 'tr') {
+        const ko = await translate(en);
+        if (ko) {
+          const hasEmpty = en.some((_, k) => !String(drafts[i].ko[k] || '').trim());
+          drafts[i].en = en.join(' / ');
+          drafts[i].ko = en.map((_, k) => (hasEmpty && String(drafts[i].ko[k] || '').trim()) ? drafts[i].ko[k] : ko[k]);
+          draw();
+        }
+      } else if (b.dataset.x === 'ai') {
+        const out = await aiCut([en.join(' ')]);
+        if (out[0]) { drafts[i] = { ...drafts[i], en: out[0].en, ko: out[0].ko, tags: drafts[i].tags || out[0].tags }; draw(); }
+        else toast('AI가 끊지 못했어요. 다시 눌러 주세요.', true);
       }
-    }
+    } catch (err) { toast(errText(err), true); }
+    b.disabled = false;
   };
   if (isNew) {
     const lines = () => $('edPaste').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
-    $('edAi').onclick = async () => {
-      const ls = lines(); if (!ls.length) return toast('문장을 먼저 붙여넣어 주세요.', true);
-      // 오른쪽 버튼: '/'가 있어도 무시하고 AI가 처음부터 끊음
-      const out = await runAi(ls.map((l) => splitSlash(l).filter(Boolean).join(' ')), $('edAi'), '의미구를 끊고 우리말로 옮기는 중…');
-      if (!out) return;
-      drafts = drafts.concat(ls.map((l, k) => out[k] ? { id: null, memo: '', ...out[k] } : { id: null, en: l, ko: '', tags: '', memo: '' }));
-      if (out.some((x) => !x)) toast('일부 문장은 자동 번역을 못 했어요. 저장할 때 다시 시도합니다.', true);
-      $('edPaste').value = ''; draw();
+    const need = () => { const ls = lines(); if (!ls.length) toast('문장을 먼저 붙여넣어 주세요.', true); return ls; };
+    // 왼쪽: 직접 입력 — 끊은 그대로 넣고 우리말 칸을 비워 둠
+    $('edManual').onclick = () => {
+      const ls = need(); if (!ls.length) return;
+      const first = drafts.length;
+      drafts = drafts.concat(ls.map((l) => ({ id: null, en: splitSlash(l).filter(Boolean).join(' / '), ko: [], tags: '', memo: '' })));
+      $('edPaste').value = ''; draw(`.ed-item[data-i="${first}"] input.ko`);
     };
-    // 왼쪽 버튼: 선생님이 '/'로 끊은 그대로, 의미구마다 우리말 번역
+    // 가운데: '/' 끊기 그대로 + 우리말 자동 번역
     $('edDirect').onclick = async () => {
-      const ls = lines(); if (!ls.length) return toast('문장을 먼저 붙여넣어 주세요.', true);
-      const btn = $('edDirect'); btn.disabled = true; $('edAi').disabled = true;
-      $('edAiMsg').textContent = '끊은 의미구마다 우리말로 옮기는 중…';
+      const ls = need(); if (!ls.length) return;
+      busy(true, '끊은 의미구마다 우리말로 옮기는 중…');
       const res = await Promise.all(ls.map(async (l) => {
         const en = splitSlash(l).filter(Boolean);
         const ko = await translate(en);
-        return { id: null, en: en.join(' / '), ko: ko ? ko.join(' / ') : '', tags: '', memo: '' };
+        return { id: null, en: en.join(' / '), ko: ko || [], tags: '', memo: '' };
       }));
-      btn.disabled = false; $('edAi').disabled = false; $('edAiMsg').textContent = '';
+      busy(false);
       drafts = drafts.concat(res);
-      if (res.some((d) => !d.ko)) toast('일부 문장은 번역을 못 했어요. 저장할 때 한 번 더 시도합니다.', true);
+      if (res.some((d) => !d.ko.length)) toast('일부 문장은 번역을 못 했어요. 직접 쓰시거나 "우리말 자동 번역"을 다시 눌러 주세요.', true);
+      $('edPaste').value = ''; draw();
+    };
+    // 오른쪽: '/' 무시, 끊기부터 자동
+    $('edAi').onclick = async () => {
+      const ls = need(); if (!ls.length) return;
+      busy(true, '의미구를 끊고 우리말로 옮기는 중…');
+      let out;
+      try { out = await aiCut(ls.map((l) => splitSlash(l).filter(Boolean).join(' '))); } catch (err) { busy(false); return toast(errText(err), true); }
+      busy(false);
+      drafts = drafts.concat(ls.map((l, k) => out[k] ? { id: null, memo: '', ...out[k] } : { id: null, en: l, ko: [], tags: '', memo: '' }));
+      if (out.some((x) => !x)) toast('일부 문장은 자동으로 끊지 못했어요.', true);
       $('edPaste').value = ''; draw();
     };
     setTimeout(() => $('edPaste').focus(), 30);
   }
   $('edSave').onclick = async () => {
-    $('edMsg').textContent = '';
+    $('edMsg').className = 'msg'; $('edMsg').textContent = '';
     if (!drafts.length) return ($('edMsg').textContent = '저장할 문장이 없어요.');
-    // 우리말이 빈 의미구는 저장 전에 자동 번역 (끊기는 그대로). 실패해도 저장하고, 음성 만들 때 서버가 다시 채움
-    const needKo = drafts.map((d, i) => {
-      const en = splitSlash(d.en).filter(Boolean), ko = d.ko.trim() ? splitSlash(d.ko) : [];
-      return en.length && en.some((_, k) => !(ko[k] || '').trim()) ? i : -1;
-    }).filter((i) => i >= 0);
-    if (needKo.length) {
-      $('edSave').disabled = true; $('edMsg').className = 'msg ok'; $('edMsg').textContent = '우리말 뜻을 자동으로 채우는 중…';
-      await Promise.all(needKo.map(async (i) => {
-        const en = splitSlash(drafts[i].en).filter(Boolean);
-        const ko = await translate(en);
-        if (ko) { const cur = drafts[i].ko.trim() ? splitSlash(drafts[i].ko) : []; drafts[i].ko = en.map((_, k) => (cur[k] || '').trim() || ko[k]).join(' / '); }
-      }));
-      $('edSave').disabled = false; $('edMsg').className = 'msg'; $('edMsg').textContent = '';
-    }
     const checked = drafts.map(checkDraft);
     const bad = checked.findIndex((r) => r.block);
     if (bad >= 0) return ($('edMsg').textContent = `문장 ${bad + 1}: ${checked[bad].warn}`);

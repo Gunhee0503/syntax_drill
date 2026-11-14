@@ -222,7 +222,7 @@ async function translateChunks(en: string[]): Promise<string[] | null> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
   if (!key || !en.length) return null;
   const model = Deno.env.get("VT_AI_MODEL") || "claude-sonnet-5-5";
-  const prompt = `아래는 선생님이 이미 끊어 둔 한 문장의 영어 의미구 ${en.length}개다. 끊기는 바꾸지 말고, 각 의미구의 우리말 뜻만 같은 순서·같은 개수(정확히 ${en.length}개)로 써라. 의미구를 합치거나 나누지 마라.\n${JSON.stringify(en)}\nJSON: {"ko":["…"]}`;
+  const prompt = `아래는 선생님이 이미 끊어 둔 한 문장의 영어 의미구 ${en.length}개다. 끊기는 바꾸지 말고, 각 의미구의 우리말 뜻만 같은 순서·같은 개수(정확히 ${en.length}개)로 써라. 의미구를 합치거나 나누지 마라.\n${JSON.stringify(en)}\nJSON 형식 (키 이름은 반드시 ko): {"ko":["뜻1","뜻2"]}`;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const r = await claude(key, { model, max_tokens: 3000, thinking: { type: "between_tools" }, system: AI_SYSTEM, messages: [{ role: "user", content: prompt }] });
@@ -230,8 +230,9 @@ async function translateChunks(en: string[]): Promise<string[] | null> {
       const out = await r.json();
       const text = (out.content || []).filter((c: any) => c.type === "text").map((c: any) => c.text).join("");
       const p = JSON.parse(text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1));
-      const ko = (p.ko || []).map((x: any) => String(x || "").trim());
-      if (ko.length === en.length && ko.every(Boolean)) return ko;
+      const arr = Array.isArray(p) ? p : (p.ko || p.kr || p.korean || p.translations || []);
+      const ko = arr.map((x: any) => String(typeof x === "object" && x ? (x.ko ?? x.kr ?? x.text ?? "") : (x ?? "")).trim());
+      if (ko.length === en.length && ko.every(Boolean)) { console.log("translate ok", en.length); return ko; }
       console.error("translate count mismatch", en.length, ko.length);
     } catch (e) { console.error("translate", (e as Error).message); }
   }
@@ -243,7 +244,7 @@ async function handleAi(body: any) {
   if (!key) return json({ error: "NO_ANTHROPIC_KEY" }, 503);
   const lines = (Array.isArray(body.lines) ? body.lines : []).map((s: any) => String(s || "").trim().slice(0, 600)).filter(Boolean).slice(0, 20);
   if (!lines.length) return json({ error: "EMPTY" }, 400);
-  const prompt = `문장 ${lines.length}개:\n${lines.map((l: string, i: number) => `${i + 1}. ${l}`).join("\n")}\n\nJSON: {"items":[{"no":1,"chunks":[{"en":"The students","ko":"그 학생들은"}],"tags":["관계대명사"]}]}`;
+  const prompt = `문장 ${lines.length}개:\n${lines.map((l: string, i: number) => `${i + 1}. ${l}`).join("\n")}\n\n모든 의미구에 en과 ko를 반드시 함께 쓴다 (키 이름은 정확히 en, ko).\nJSON: {"items":[{"no":1,"chunks":[{"en":"The students","ko":"그 학생들은"}],"tags":["관계대명사"]}]}`;
   const model = Deno.env.get("VT_AI_MODEL") || "claude-sonnet-5-5";
   const r = await claude(key, { model, max_tokens: 6000, thinking: { type: "between_tools" }, system: AI_SYSTEM, messages: [{ role: "user", content: prompt }] });
   if (!r.ok) { console.error("anthropic", r.status, (await r.text()).slice(0, 400)); return json({ error: "AI_UPSTREAM", status: r.status }, 502); }
@@ -252,11 +253,20 @@ async function handleAi(body: any) {
   const s = text.indexOf("{"), e = text.lastIndexOf("}");
   let parsed: any;
   try { parsed = JSON.parse(text.slice(s, e + 1)); } catch { return json({ error: "BAD_AI_OUTPUT" }, 502); }
+  const koOf = (c: any) => String(c.ko ?? c.kr ?? c.korean ?? c.meaning ?? c.translation ?? c["우리말"] ?? c["뜻"] ?? "").trim();
   const items = (parsed.items || []).map((it: any) => ({
     no: Number(it.no),
-    chunks: (it.chunks || []).map((c: any) => ({ en: String(c.en || "").trim(), ko: String(c.ko || "").trim() })).filter((c: Chunk) => c.en),
+    chunks: (it.chunks || []).map((c: any) => ({ en: String(c.en ?? c.english ?? "").trim(), ko: koOf(c) })).filter((c: Chunk) => c.en),
     tags: (it.tags || []).map((t: any) => String(t).trim()).filter(Boolean).slice(0, 4),
   }));
+  // 우리말이 빠진 의미구가 있으면 끊기는 그대로 두고 번역만 다시 받음
+  await Promise.all(items.map(async (it: any) => {
+    if (!it.chunks.length || it.chunks.every((c: Chunk) => c.ko)) return;
+    console.log("ai: ko missing, translating", it.chunks.length);
+    const ko = await translateChunks(it.chunks.map((c: Chunk) => c.en));
+    if (ko) it.chunks = it.chunks.map((c: Chunk, i: number) => ({ en: c.en, ko: c.ko || ko[i] }));
+  }));
+  console.log("ai ok", items.length, items.map((it: any) => `${it.chunks.length}:${it.chunks.filter((c: Chunk) => c.ko).length}`).join(","));
   return json({ items, model });
 }
 
