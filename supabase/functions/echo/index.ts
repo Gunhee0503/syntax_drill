@@ -52,6 +52,24 @@ async function signMany(db: any, paths: string[]) {
   }
   return out;
 }
+// 직독직해 시작 안내 음성: 처음 한 번 일레븐랩스로 만들어 저장해 두고 계속 씀
+const INTRO_TEXT = "자, 이제 우리말을 읽어 주면 영어로 말해 보세요.";
+async function introPath(db: any, voice: string) {
+  const v = String(voice).replace(/[^A-Za-z0-9]/g, "");
+  const name = `drill-intro-${v}-1.mp3`, path = `sys/${name}`;
+  try {
+    const { data: list } = await db.storage.from(BUCKET).list("sys", { search: name, limit: 5 });
+    if ((list || []).some((f: any) => f.name === name)) return path;
+    const key = Deno.env.get("ELEVENLABS_API_KEY"); if (!key) return null;
+    const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${v}?output_format=mp3_44100_128`, {
+      method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: INTRO_TEXT, model_id: Deno.env.get("DRILL_TTS_MODEL") || "eleven_multilingual_v2", voice_settings: { stability: 0.6, similarity_boost: 0.75 } }),
+    });
+    if (!r.ok) { console.error("intro", r.status, (await r.text()).slice(0, 200)); return null; }
+    const up = await db.storage.from(BUCKET).upload(path, new Uint8Array(await r.arrayBuffer()), { contentType: "audio/mpeg", upsert: true });
+    return up.error ? null : path;
+  } catch (e) { console.error("intro", (e as Error).message); return null; }
+}
 const sentenceCols = "id, chunks, text, source_label, audio_en, audio_ko, times_en, times_ko";
 
 async function lessonsFor(db: any, classCode: string) {
@@ -149,7 +167,8 @@ Deno.serve(async (req) => {
       const list = ids.map((i) => byId[i]).filter((r) => r && r.audio_en);
       const v = await voices(db);
       const nums = Array.from({ length: Math.min(list.length, 80) }, (_, i) => `num/${String(v.en).replace(/[^A-Za-z0-9]/g, "")}/${i + 1}.mp3`);
-      const urls = await signMany(db, [...list.flatMap((r: any) => [r.audio_en, r.audio_ko]), ...nums]);
+      const intro = list.length ? await introPath(db, v.ko) : null;
+      const urls = await signMany(db, [...list.flatMap((r: any) => [r.audio_en, r.audio_ko]), ...nums, ...(intro ? [intro] : [])]);
       const { data: st } = await db.from("drill_student_stars").select("sentence_id").eq("student_id", sid);
       const starred = new Set((st || []).map((x: any) => x.sentence_id));
       return json({
@@ -159,6 +178,7 @@ Deno.serve(async (req) => {
           times_en: r.times_en || [], times_ko: r.times_ko || [], star: starred.has(r.id),
         })),
         numbers: nums.map((p) => urls[p] || null),
+        intro: intro ? urls[intro] || null : null,
       });
     }
 
