@@ -438,11 +438,11 @@ function openEditor(s) {
         <div id="edNewCat" hidden><label>새 카테고리 번호<input id="edNewCode" placeholder="예: 2-3" maxlength="20"></label></div>
       </div>
       ${isNew ? `<div class="ed-paste">
-        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장. 이미 '/'로 끊어 두셨다면 그대로 씁니다.</span>
+        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장. 의미구 끊기와 우리말 뜻은 자동으로 채워지고, 아래에서 고칠 수 있어요. '/'로 직접 끊어 두면 그 끊기를 그대로 쓰고 뜻만 번역합니다.</span>
           <textarea id="edPaste" placeholder="The students who studied hard passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
         <div class="row">
-          <button class="btn primary" id="edAi">AI로 의미구·뜻 만들기</button>
-          <button class="btn" id="edDirect">'/' 그대로 넣기</button>
+          <button class="btn primary" id="edAi">문장 넣기 (자동 끊기·번역)</button>
+          <button class="btn ghost" id="edDirect">끊기만 그대로 넣기</button>
           <span class="small" id="edAiMsg"></span>
         </div>
       </div>` : ''}
@@ -459,7 +459,8 @@ function openEditor(s) {
       const r = checkDraft(d);
       return `<div class="ed-item" data-i="${i}">
         <div class="ih">${isNew ? `문장 ${i + 1}` : ''}<span class="grow"></span>
-          <button class="btn ghost sm" data-x="ai">AI로 다시 끊기</button>
+          <button class="btn ghost sm" data-x="tr" title="지금 끊은 그대로 우리말만 다시 번역">우리말 다시 번역</button>
+          <button class="btn ghost sm" data-x="ai" title="의미구 끊기부터 다시">AI로 다시 끊기</button>
           ${isNew ? '<button class="icon" data-x="rm" title="빼기">✕</button>' : ''}</div>
         <label>영어 <span class="small">의미구는 / 로 끊기</span><input class="en" data-f="en" value="${esc(d.en)}"></label>
         <label>우리말 뜻 <span class="small">영어와 같은 개수로 / 로 끊기</span><input class="ko" data-f="ko" value="${esc(d.ko)}"></label>
@@ -486,12 +487,21 @@ function openEditor(s) {
     const i = +box.dataset.i; drafts[i][f] = e.target.value;
     if (f === 'en' || f === 'ko') redrawPairs(i);
   };
-  const runAi = async (lines, btn) => {
+  // lines: 영어 문장들. '/'가 있으면 그 끊기를 그대로 두고 뜻만 받음
+  const runAi = async (lines, btn, label) => {
     if (btn) { btn.disabled = true; }
-    const msg = $('edAiMsg'); if (msg) msg.textContent = 'AI가 의미구를 끊는 중…';
+    const msg = $('edAiMsg'); if (msg) msg.textContent = label || '의미구를 끊고 우리말로 옮기는 중…';
     try {
       const r = await fn('ai', { lines });
-      return (r.items || []).map((it) => ({ en: it.chunks.map((c) => c.en).join(' / '), ko: it.chunks.map((c) => c.ko).join(' / '), tags: (it.tags || []).join(', ') }));
+      const items = r.items || [];
+      return lines.map((line, k) => {
+        const it = items.find((x) => x.no === k + 1) || items[k];
+        if (!it || !it.chunks.length) return null;
+        const aiEn = it.chunks.map((c) => c.en), aiKo = it.chunks.map((c) => c.ko);
+        const mine = line.includes('/') ? splitSlash(line).filter(Boolean) : null;
+        if (mine && mine.length === aiEn.length) return { en: mine.join(' / '), ko: aiKo.join(' / '), tags: (it.tags || []).join(', ') };
+        return { en: aiEn.join(' / '), ko: aiKo.join(' / '), tags: (it.tags || []).join(', ') };
+      });
     } catch (e) { toast(errText(e), true); return null; }
     finally { if (btn) btn.disabled = false; if (msg) msg.textContent = ''; }
   };
@@ -499,10 +509,15 @@ function openEditor(s) {
     const b = e.target.closest('[data-x]'); if (!b) return;
     const i = +b.closest('.ed-item').dataset.i;
     if (b.dataset.x === 'rm') { drafts.splice(i, 1); draw(); return; }
-    if (b.dataset.x === 'ai') {
-      const line = splitSlash(drafts[i].en).filter(Boolean).join(' ');
-      const out = await runAi([line], b);
-      if (out && out[0]) { drafts[i] = { ...drafts[i], en: out[0].en, ko: out[0].ko, tags: drafts[i].tags || out[0].tags }; draw(); }
+    if (b.dataset.x === 'ai' || b.dataset.x === 'tr') {
+      const parts = splitSlash(drafts[i].en).filter(Boolean);
+      if (!parts.length) return;
+      const line = b.dataset.x === 'tr' ? parts.join(' / ') + (parts.length === 1 ? ' /' : '') : parts.join(' ');
+      const out = await runAi([line], b, b.dataset.x === 'tr' ? '우리말로 옮기는 중…' : '');
+      if (out && out[0]) {
+        const keep = b.dataset.x === 'tr' ? { en: parts.join(' / ') } : {};
+        drafts[i] = { ...drafts[i], en: out[0].en, ko: out[0].ko, ...keep, tags: drafts[i].tags || out[0].tags }; draw();
+      }
     }
   };
   if (isNew) {
@@ -512,6 +527,7 @@ function openEditor(s) {
       const out = await runAi(ls, $('edAi'));
       if (!out) return;
       drafts = drafts.concat(ls.map((l, k) => out[k] ? { id: null, memo: '', ...out[k] } : { id: null, en: l, ko: '', tags: '', memo: '' }));
+      if (out.some((x) => !x)) toast('일부 문장은 자동 번역을 못 했어요. 저장할 때 다시 시도합니다.', true);
       $('edPaste').value = ''; draw();
     };
     $('edDirect').onclick = () => {
@@ -524,6 +540,20 @@ function openEditor(s) {
   $('edSave').onclick = async () => {
     $('edMsg').textContent = '';
     if (!drafts.length) return ($('edMsg').textContent = '저장할 문장이 없어요.');
+    // 우리말이 비어 있는 문장은 저장 전에 자동 번역 (끊기는 그대로)
+    const empty = drafts.map((d, i) => (!d.ko.trim() && splitSlash(d.en).filter(Boolean).length) ? i : -1).filter((i) => i >= 0);
+    if (empty.length) {
+      $('edSave').disabled = true; $('edMsg').className = 'msg ok'; $('edMsg').textContent = '우리말 뜻을 자동으로 채우는 중…';
+      const ls = empty.map((i) => { const p = splitSlash(drafts[i].en).filter(Boolean); return p.join(' / ') + (p.length === 1 ? ' /' : ''); });
+      const out = await runAi(ls, null, ' ');
+      $('edSave').disabled = false; $('edMsg').className = 'msg'; $('edMsg').textContent = '';
+      if (out) {
+        empty.forEach((i, k) => { if (out[k]) { const p = splitSlash(drafts[i].en).filter(Boolean); const ko = splitSlash(out[k].ko); if (ko.length === p.length) drafts[i].ko = ko.join(' / '); if (!drafts[i].tags) drafts[i].tags = out[k].tags; } });
+        draw();
+        const still = empty.filter((i) => !drafts[i].ko.trim());
+        if (still.length < empty.length) { $('edMsg').className = 'msg ok'; $('edMsg').textContent = '우리말 뜻을 채웠어요. 확인하고 한 번 더 저장을 눌러 주세요.'; return; }
+      }
+    }
     const checked = drafts.map(checkDraft);
     const bad = checked.findIndex((r) => r.block);
     if (bad >= 0) return ($('edMsg').textContent = `문장 ${bad + 1}: ${checked[bad].warn}`);
