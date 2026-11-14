@@ -468,8 +468,9 @@ function openEditor(s) {
         <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장, 의미구는 '/'로 끊기. 우리말은 자동으로 달리고, 칸에서 바로 고칠 수 있어요.</span>
           <textarea id="edPaste" placeholder="The students / who studied hard / passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
         <div class="row">
-          <button class="btn primary" id="edManual" title="'/'로 끊은 그대로 넣고, 의미구마다 우리말을 자동으로 달아요 (고칠 수 있음)">넣기 (내가 끊은 대로 · 우리말 자동)</button>
-          <button class="btn" id="edAi" title="'/'를 무시하고 끊기부터 AI가 해요">AI 자동 끊기·번역</button>
+          <button class="btn primary" id="edManual" title="'/'로 끊은 그대로 넣고, 의미구마다 우리말을 자동으로 달아요 (고칠 수 있음)">문장 입력 (우리말 자동 번역)</button>
+          <button class="btn" id="edWrite" title="'/'로 끊은 그대로 넣고, 우리말은 비워 둬서 직접 써요">우리말 직접 쓰기</button>
+          <button class="btn" id="edAi" title="'/'를 무시하고 끊기부터 AI가 해요">자동 끊기·번역</button>
           <span class="small" id="edAiMsg"></span>
         </div>
       </div>` : ''}
@@ -527,7 +528,7 @@ function openEditor(s) {
     const n = all[all.indexOf(e.target) + 1]; if (n) n.focus(); else $('edSave').focus();
   };
   const busy = (on, msg) => {
-    ['edManual', 'edAi'].forEach((id) => { if ($(id)) $(id).disabled = on; });
+    ['edManual', 'edWrite', 'edAi'].forEach((id) => { if ($(id)) $(id).disabled = on; });
     if ($('edAiMsg')) $('edAiMsg').textContent = on ? msg : '';
   };
   // 안 끊은 문장들 → AI가 끊기·번역
@@ -596,6 +597,13 @@ function openEditor(s) {
       $('edAiMsg').textContent = '';
       if (fails.length) toast(`${fails.length}문장은 자동 번역을 못 했어요. 직접 쓰시거나 문장 오른쪽 위 "우리말 자동 번역"을 눌러 주세요.`, true);
       const firstEmpty = $('edItems').querySelector(`.ed-item[data-i="${first}"] input.ko`); if (firstEmpty && !document.activeElement.matches('input')) firstEmpty.focus();
+    };
+    // 가운데: 끊은 그대로 넣고 우리말 칸은 비워 둠 (직접 쓰기)
+    $('edWrite').onclick = () => {
+      const ls = need(); if (!ls.length) return;
+      const first = drafts.length;
+      drafts = drafts.concat(ls.map((l) => ({ id: null, en: splitSlash(l).filter(Boolean).join(' / '), ko: [], tags: '', memo: '' })));
+      $('edPaste').value = ''; draw(`.ed-item[data-i="${first}"] input.ko`);
     };
     // 오른쪽: '/' 무시, 끊기부터 자동
     $('edAi').onclick = async () => {
