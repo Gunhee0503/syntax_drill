@@ -464,11 +464,11 @@ function openEditor(s) {
         <div id="edNewCat" hidden><label>새 카테고리 번호<input id="edNewCode" placeholder="예: 2-3" maxlength="20"></label></div>
       </div>
       ${isNew ? `<div class="ed-paste">
-        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장. '/'로 끊어 두면 그 끊기 그대로 우리말 뜻만 자동 번역하고, 안 끊으면 끊기까지 자동으로 해요. 결과는 아래에서 고칠 수 있어요.</span>
+        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장. 왼쪽 버튼은 '/'로 끊은 그대로 의미구마다 우리말을 붙이고, 오른쪽 버튼은 끊기부터 자동으로 해요. 결과는 아래에서 고칠 수 있어요.</span>
           <textarea id="edPaste" placeholder="The students who studied hard passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
         <div class="row">
-          <button class="btn primary" id="edAi">문장 넣기 (자동 끊기·번역)</button>
-          <button class="btn ghost" id="edDirect">끊기만 그대로 넣기</button>
+          <button class="btn primary" id="edDirect" title="'/'로 끊은 그대로, 의미구마다 우리말 뜻을 자동으로 붙여요">끊은 문장 넣기 (우리말 자동 번역)</button>
+          <button class="btn" id="edAi" title="끊기부터 AI가 하고 우리말도 붙여요">문장 넣기 (자동 끊기·번역)</button>
           <span class="small" id="edAiMsg"></span>
         </div>
       </div>` : ''}
@@ -565,15 +565,26 @@ function openEditor(s) {
     const lines = () => $('edPaste').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
     $('edAi').onclick = async () => {
       const ls = lines(); if (!ls.length) return toast('문장을 먼저 붙여넣어 주세요.', true);
-      const out = await runAi(ls, $('edAi'));
+      // 오른쪽 버튼: '/'가 있어도 무시하고 AI가 처음부터 끊음
+      const out = await runAi(ls.map((l) => splitSlash(l).filter(Boolean).join(' ')), $('edAi'), '의미구를 끊고 우리말로 옮기는 중…');
       if (!out) return;
       drafts = drafts.concat(ls.map((l, k) => out[k] ? { id: null, memo: '', ...out[k] } : { id: null, en: l, ko: '', tags: '', memo: '' }));
       if (out.some((x) => !x)) toast('일부 문장은 자동 번역을 못 했어요. 저장할 때 다시 시도합니다.', true);
       $('edPaste').value = ''; draw();
     };
-    $('edDirect').onclick = () => {
+    // 왼쪽 버튼: 선생님이 '/'로 끊은 그대로, 의미구마다 우리말 번역
+    $('edDirect').onclick = async () => {
       const ls = lines(); if (!ls.length) return toast('문장을 먼저 붙여넣어 주세요.', true);
-      drafts = drafts.concat(ls.map((l) => ({ id: null, en: l, ko: '', tags: '', memo: '' })));
+      const btn = $('edDirect'); btn.disabled = true; $('edAi').disabled = true;
+      $('edAiMsg').textContent = '끊은 의미구마다 우리말로 옮기는 중…';
+      const res = await Promise.all(ls.map(async (l) => {
+        const en = splitSlash(l).filter(Boolean);
+        const ko = await translate(en);
+        return { id: null, en: en.join(' / '), ko: ko ? ko.join(' / ') : '', tags: '', memo: '' };
+      }));
+      btn.disabled = false; $('edAi').disabled = false; $('edAiMsg').textContent = '';
+      drafts = drafts.concat(res);
+      if (res.some((d) => !d.ko)) toast('일부 문장은 번역을 못 했어요. 저장할 때 한 번 더 시도합니다.', true);
       $('edPaste').value = ''; draw();
     };
     setTimeout(() => $('edPaste').focus(), 30);
