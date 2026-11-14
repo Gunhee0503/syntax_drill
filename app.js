@@ -1118,7 +1118,8 @@ async function playSentence(s, mode, tok) {
         if (!await wait(thinkMs(ch[k]), tok, '영어로 말해 보세요')) return false;
         V.cue = -1; V.enHideFrom = k + 1; drawChunks();
         if (te[k] && !await seg(P.en, enUrl, te[k][0], te[k][1], O.speed, tok)) return false;
-        if (!await wait(500, tok)) return false;
+        // 따라 말하기: 정답 영어를 듣고 한 번 더 소리 내어 따라 할 시간
+        if (!await wait(O.shadow ? thinkMs(ch[k]) : 500, tok, O.shadow ? '정답을 따라 말해 보세요' : '')) return false;
       }
       resetV(); drawChunks();
       if (!await wait(300, tok)) return false;
