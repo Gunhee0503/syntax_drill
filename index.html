@@ -103,12 +103,12 @@
         <div class="cgroup modes" id="modes">
           <button data-mode="full" class="on"><b>1</b> 전체듣기</button>
           <button data-mode="chunk"><b>2</b> 끊어듣기</button>
-          <button data-mode="drill"><b>3</b> 말하기 드릴 <small>우리말→영어</small></button>
-          <button data-mode="read"><b>4</b> 직독직해 <small>영어→우리말</small></button>
+          <button data-mode="drill"><b>3</b> 직독직해 <small>우리말→영어</small></button>
         </div>
         <div class="cgroup transport">
           <button class="tbtn" id="prev" title="이전 문장 (←)">◀︎</button>
-          <button class="tbtn play" id="play" title="재생 / 멈춤 (Space)">▶︎</button>
+          <button class="tbtn play" id="play" title="재생 / 일시정지 (Space)">▶︎</button>
+          <button class="tbtn" id="stopBtn" title="처음으로 정지 (Esc)">■</button>
           <button class="tbtn" id="next" title="다음 문장 (→)">▶︎▶︎</button>
           <label class="chk"><input type="checkbox" id="auto"> 끝까지 이어서</label>
           <label class="chk"><input type="checkbox" id="numOn" checked> 번호 읽기</label>
@@ -143,7 +143,7 @@
           <span class="grow"></span>
           <button class="btn ghost sm" id="fs" title="전체 화면 (F)">전체 화면</button>
         </div>
-        <p class="keys">단축키: Space 재생·멈춤 · ← → 문장 이동 · 1~4 모드 · H 영어 가리기 · K 우리말 · F 전체 화면</p>
+        <p class="keys">단축키: Space 재생·일시정지 · Esc 정지 · ← → 문장 이동 · 1~3 모드 · H 영어 가리기 · K 우리말 · F 전체 화면</p>
       </div>
     </main>
   </section>
@@ -193,6 +193,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=4"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

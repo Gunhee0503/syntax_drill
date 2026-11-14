@@ -651,6 +651,7 @@ function confirmBox(title, text, ok, danger) {
  *  수업
  * ========================================================= */
 const O = Object.assign({ mode: 'full', speed: 1, rep: 1, think: 1, shadow: 0, enView: 'show', koView: 'show', auto: false, numOn: true }, store.get('opts', {}));
+if (!['full', 'chunk', 'drill'].includes(O.mode)) O.mode = 'full';
 const C = { list: [], idx: 0, lessonId: null, lessonTitle: '' };
 const V = { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 };
 const resetV = () => Object.assign(V, { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 });
@@ -790,7 +791,7 @@ $('plSave').onclick = () => {
 };
 
 /* ---------- 무대 그리기 ---------- */
-const MODE_LABEL = { full: '전체듣기', chunk: '끊어듣기', drill: '말하기 드릴', read: '직독직해' };
+const MODE_LABEL = { full: '전체듣기', chunk: '끊어듣기', drill: '직독직해' };
 function wordsOf(t) { return String(t).split(/\s+/).filter(Boolean); }
 function maskWord(w, kind) {
   const m = w.match(/^([^A-Za-z0-9]*)([A-Za-z0-9'’-]+)(.*)$/);
@@ -831,7 +832,7 @@ function drawChunks() {
 }
 function setStateText(txt) {
   const el = $('stState');
-  el.textContent = txt || (P.playing ? MODE_LABEL[O.mode] + ' 재생 중' : MODE_LABEL[O.mode]);
+  el.textContent = txt || (P.paused ? '일시정지 — Space로 이어서' : P.playing ? MODE_LABEL[O.mode] + ' 재생 중' : MODE_LABEL[O.mode]);
   el.classList.toggle('live', !!P.playing);
 }
 function syncControls() {
@@ -855,6 +856,9 @@ $('numOn').onchange = (e) => { O.numOn = e.target.checked; saveOpts(); };
 $('prev').onclick = () => go(-1);
 $('next').onclick = () => go(1);
 $('play').onclick = () => run();
+$('stopBtn').onclick = () => stop();
+// 수업 화면 버튼은 누른 뒤 포커스를 풀어 Space가 버튼을 다시 누르지 않게
+document.querySelector('.controls').addEventListener('click', (e) => { const b = e.target.closest('button'); if (b) b.blur(); });
 $('fs').onclick = () => toggleFs();
 function go(d) {
   if (!C.list.length) return;
@@ -868,7 +872,7 @@ function toggleFs() {
 }
 
 /* ---------- 재생 엔진 ---------- */
-const P = { tok: 0, playing: false, en: new Audio(), ko: new Audio(), num: new Audio() };
+const P = { tok: 0, playing: false, paused: false, en: new Audio(), ko: new Audio(), num: new Audio() };
 [P.en, P.ko, P.num].forEach((a) => { a.preload = 'auto'; });
 const urlCache = new Map();
 async function audioUrl(path) {
@@ -904,17 +908,19 @@ async function seg(el, url, s, e, rate, tok) {
   return new Promise((res) => {
     const iv = setInterval(() => {
       if (tok !== P.tok) { clearInterval(iv); el.pause(); return res(false); }
+      if (P.paused) { if (!el.paused) el.pause(); return; }
+      if (el.paused && !el.ended) { el.play().catch(() => {}); return; }
       if ((e != null && el.currentTime >= e) || el.ended) { clearInterval(iv); el.pause(); res(true); }
     }, 12);
   });
 }
 function wait(ms, tok, label) {
   return new Promise((res) => {
-    const t0 = performance.now();
+    let el = 0, last = performance.now();
     if (label) showCount(label);
     const iv = setInterval(() => {
       if (tok !== P.tok) { clearInterval(iv); hideCount(); return res(false); }
-      const el = performance.now() - t0;
+      const now = performance.now(); if (!P.paused) el += now - last; last = now;
       if (label) updCount(ms - el, ms);
       if (el >= ms) { clearInterval(iv); if (label) hideCount(); res(true); }
     }, 40);
@@ -927,11 +933,23 @@ function thinkMs(c) {
   const w = wordsOf(c.en).length;
   return Math.round(Math.min(10000, Math.max(1600, 1100 + w * 520)) * (O.think || 1));
 }
-function setPlaying(v) { P.playing = v; $('play').textContent = v ? '■' : '▶︎'; $('play').classList.toggle('on', v); setStateText(); }
+function setPlaying(v) { P.playing = v; if (!v) P.paused = false; drawPlay(); setStateText(); }
+function drawPlay() {
+  const live = P.playing && !P.paused;
+  $('play').textContent = live ? '❚❚' : '▶︎';
+  $('play').classList.toggle('on', live);
+  $('play').title = live ? '일시정지 (Space)' : (P.paused ? '이어서 재생 (Space)' : '재생 (Space)');
+}
+function togglePause() {
+  if (!P.playing) return;
+  P.paused = !P.paused;
+  if (P.paused) [P.en, P.ko, P.num].forEach((a) => { try { a.pause(); } catch { /* 무시 */ } });
+  drawPlay(); setStateText();
+}
 function stop() {
   P.tok++;
   [P.en, P.ko, P.num].forEach((a) => { try { a.pause(); } catch { /* 무시 */ } });
-  hideCount(); if (P.playing) setPlaying(false); resetV(); if (curSent()) drawChunks();
+  P.paused = false; hideCount(); if (P.playing) setPlaying(false); else drawPlay(); resetV(); if (curSent()) drawChunks();
 }
 
 async function ensureNumbers() {
@@ -957,9 +975,9 @@ async function playSentence(s, mode, tok) {
   const ch = chunksOf(s);
   const te = s.times_en || [], tk = s.times_ko || [];
   const enUrl = await audioUrl(s.audio_en);
-  const needKo = mode === 'drill' || mode === 'read';
+  const needKo = mode === 'drill';
   const koUrl = needKo && s.audio_ko ? await audioUrl(s.audio_ko) : null;
-  if (needKo && !koUrl) { toast('이 문장은 우리말 뜻(음성)이 없어 끊어듣기로 재생해요.', true); mode = 'chunk'; }
+  if (needKo && !koUrl) { toast('이 문장은 우리말 음성이 없어 끊어듣기로 재생해요. ↻로 음성을 다시 만들어 주세요.', true); mode = 'chunk'; }
   if (tok !== P.tok) return false;
   const full = async () => { V.cur = -1; drawChunks(); return seg(P.en, enUrl, 0, null, O.speed, tok); };
   if (O.numOn) { if (!await playNumber(C.idx + 1, tok)) return false; }
@@ -992,27 +1010,12 @@ async function playSentence(s, mode, tok) {
       resetV(); drawChunks();
       if (!await wait(300, tok)) return false;
       if (!await full()) return false;
-    } else if (mode === 'read') {
-      V.koHideFrom = 0;
-      for (let k = 0; k < ch.length; k++) {
-        V.cur = k; drawChunks();
-        if (te[k] && !await seg(P.en, enUrl, te[k][0], te[k][1], O.speed, tok)) return false;
-        if (ch[k].ko && tk[k]) {
-          if (!await wait(thinkMs(ch[k]), tok, '우리말로 말해 보세요')) return false;
-          V.koHideFrom = k + 1; drawChunks();
-          if (!await seg(P.ko, koUrl, tk[k][0], tk[k][1], 1, tok)) return false;
-        } else { V.koHideFrom = k + 1; drawChunks(); }
-        if (!await wait(450, tok)) return false;
-      }
-      resetV(); drawChunks();
-      if (!await wait(300, tok)) return false;
-      if (!await full()) return false;
     }
   }
   return true;
 }
 async function run() {
-  if (P.playing) return stop();
+  if (P.playing) return togglePause();
   const s = curSent();
   if (!s) return toast('수업 목록이 비어 있어요. 왼쪽 불러오기를 눌러 주세요.', true);
   const tok = ++P.tok;
@@ -1042,12 +1045,14 @@ async function preview(s) {
 
 document.addEventListener('keydown', (e) => {
   if ($('tab-class').hidden || !$('modal').hidden) return;
-  if (e.target.closest('input,textarea,select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest('input:not([type=checkbox]),textarea,select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest('button,input')) e.target.blur();
   const k = e.key;
   if (k === ' ') { e.preventDefault(); run(); }
   else if (k === 'ArrowLeft') { e.preventDefault(); go(-1); }
   else if (k === 'ArrowRight') { e.preventDefault(); go(1); }
-  else if (k >= '1' && k <= '4') setMode(['full', 'chunk', 'drill', 'read'][+k - 1]);
+  else if (k >= '1' && k <= '3') setMode(['full', 'chunk', 'drill'][+k - 1]);
+  else if (k === 'Escape') { e.preventDefault(); stop(); }
   else if (k === 'h' || k === 'H' || k === 'ㅗ') { O.enView = { show: 'initial', initial: 'hide', hide: 'show' }[O.enView]; saveOpts(); syncControls(); drawChunks(); }
   else if (k === 'k' || k === 'K' || k === 'ㅏ') { O.koView = O.koView === 'show' ? 'hide' : 'show'; saveOpts(); syncControls(); drawChunks(); }
   else if (k === 'f' || k === 'F' || k === 'ㄹ') toggleFs();
