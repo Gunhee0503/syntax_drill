@@ -430,13 +430,13 @@ const ttsQueue = [];
 
 /* ---------- 문장 편집 ---------- */
 // 끊어 둔 영어 의미구 → 같은 개수의 우리말 (실패하면 null)
-async function translate(en) {
+async function translate(en, quiet) {
   try {
     const r = await fn('translate', { chunks: en });
     if (Array.isArray(r && r.ko) && r.ko.length === en.length) return r.ko;
     console.warn('translate: unexpected', r);
-    toast('번역 결과를 받지 못했어요. 다시 눌러 주세요.', true); return null;
-  } catch (e) { toast('자동 번역 실패: ' + errText(e), true); return null; }
+    if (!quiet) toast('번역 결과를 받지 못했어요. 다시 눌러 주세요.', true); return null;
+  } catch (e) { console.warn('translate', e); if (!quiet || /KEY|STAFF/.test(String(e.message))) toast('자동 번역 실패: ' + errText(e), true); return null; }
 }
 function splitSlash(s) { return String(s || '').split(/[\/／]/).map((x) => x.trim()); }
 // 편집 초안: en = '/'로 끊은 영어 한 줄, ko = 의미구별 우리말 배열
@@ -465,12 +465,11 @@ function openEditor(s) {
         <div id="edNewCat" hidden><label>새 카테고리 번호<input id="edNewCode" placeholder="예: 2-3" maxlength="20"></label></div>
       </div>
       ${isNew ? `<div class="ed-paste">
-        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장, 의미구는 '/'로 끊기</span>
+        <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장, 의미구는 '/'로 끊기. 우리말은 자동으로 달리고, 칸에서 바로 고칠 수 있어요.</span>
           <textarea id="edPaste" placeholder="The students / who studied hard / passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
         <div class="row">
-          <button class="btn primary" id="edManual" title="끊은 그대로 넣고, 우리말은 의미구마다 직접 입력">직접 입력 (우리말 직접 쓰기)</button>
-          <button class="btn" id="edDirect" title="'/'로 끊은 그대로 두고, 우리말만 자동 번역">우리말 자동 번역</button>
-          <button class="btn" id="edAi" title="'/'를 무시하고 끊기부터 자동으로">자동 끊기·번역</button>
+          <button class="btn primary" id="edManual" title="'/'로 끊은 그대로 넣고, 의미구마다 우리말을 자동으로 달아요 (고칠 수 있음)">넣기 (내가 끊은 대로 · 우리말 자동)</button>
+          <button class="btn" id="edAi" title="'/'를 무시하고 끊기부터 AI가 해요">AI 자동 끊기·번역</button>
           <span class="small" id="edAiMsg"></span>
         </div>
       </div>` : ''}
@@ -484,7 +483,7 @@ function openEditor(s) {
     </div>`);
   const rowsHtml = (d) => {
     const r = checkDraft(d);
-    return `${r.chunks.map((c, k) => `<div class="krow"><span class="kn">${k + 1}</span><span class="ken">${esc(c.en)}</span><input class="ko" data-k="${k}" value="${esc(c.ko)}" placeholder="우리말 뜻"></div>`).join('')}
+    return `${r.chunks.map((c, k) => `<div class="krow"><span class="kn">${k + 1}</span><span class="ken">${esc(c.en)}</span><input class="ko" data-k="${k}" value="${esc(c.ko)}" placeholder="${d._pending ? '번역 중…' : '우리말 뜻'}"></div>`).join('')}
       ${r.warn ? `<div class="warn">${esc(r.warn)}</div>` : ''}`;
   };
   const draw = (focus) => {
@@ -528,7 +527,7 @@ function openEditor(s) {
     const n = all[all.indexOf(e.target) + 1]; if (n) n.focus(); else $('edSave').focus();
   };
   const busy = (on, msg) => {
-    ['edManual', 'edDirect', 'edAi'].forEach((id) => { if ($(id)) $(id).disabled = on; });
+    ['edManual', 'edAi'].forEach((id) => { if ($(id)) $(id).disabled = on; });
     if ($('edAiMsg')) $('edAiMsg').textContent = on ? msg : '';
   };
   // 안 끊은 문장들 → AI가 끊기·번역
@@ -566,26 +565,37 @@ function openEditor(s) {
   if (isNew) {
     const lines = () => $('edPaste').value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean).slice(0, 20);
     const need = () => { const ls = lines(); if (!ls.length) toast('문장을 먼저 붙여넣어 주세요.', true); return ls; };
-    // 왼쪽: 직접 입력 — 끊은 그대로 넣고 우리말 칸을 비워 둠
-    $('edManual').onclick = () => {
+    // 번역 결과를 빈 칸에만 채움 (선생님이 그새 쓴 칸은 그대로)
+    const fillKo = (d, ko) => {
+      d._pending = false;
+      const i = drafts.indexOf(d); if (i < 0) return;
+      const en = splitSlash(d.en).filter(Boolean);
+      en.forEach((_, k) => { if (ko && ko[k] && !String(d.ko[k] || '').trim()) d.ko[k] = ko[k]; });
+      const box = $('edItems').querySelector(`.ed-item[data-i="${i}"]`); if (!box) return;
+      box.querySelectorAll('input.ko').forEach((inp) => {
+        const k = +inp.dataset.k; inp.placeholder = '우리말 뜻';
+        if (!inp.value.trim() && d.ko[k]) inp.value = d.ko[k];
+      });
+      const r = checkDraft(d), w = box.querySelector('.warn');
+      if (w) { if (r.warn) w.textContent = r.warn; else w.remove(); }
+    };
+    // 왼쪽(기본): 선생님이 '/'로 끊은 그대로 넣고 → 의미구마다 우리말 자동 (칸에서 수정 가능)
+    $('edManual').onclick = async () => {
       const ls = need(); if (!ls.length) return;
       const first = drafts.length;
-      drafts = drafts.concat(ls.map((l) => ({ id: null, en: splitSlash(l).filter(Boolean).join(' / '), ko: [], tags: '', memo: '' })));
-      $('edPaste').value = ''; draw(`.ed-item[data-i="${first}"] input.ko`);
-    };
-    // 가운데: '/' 끊기 그대로 + 우리말 자동 번역
-    $('edDirect').onclick = async () => {
-      const ls = need(); if (!ls.length) return;
-      busy(true, '끊은 의미구마다 우리말로 옮기는 중…');
-      const res = await Promise.all(ls.map(async (l) => {
-        const en = splitSlash(l).filter(Boolean);
-        const ko = await translate(en);
-        return { id: null, en: en.join(' / '), ko: ko || [], tags: '', memo: '' };
-      }));
-      busy(false);
-      drafts = drafts.concat(res);
-      if (res.some((d) => !d.ko.length)) toast('일부 문장은 번역을 못 했어요. 직접 쓰시거나 "우리말 자동 번역"을 다시 눌러 주세요.', true);
+      const added = ls.map((l) => ({ id: null, en: splitSlash(l).filter(Boolean).join(' / '), ko: [], tags: '', memo: '', _pending: true }));
+      drafts = drafts.concat(added);
       $('edPaste').value = ''; draw();
+      $('edAiMsg').textContent = '의미구마다 우리말을 다는 중…';
+      const fails = [];
+      await Promise.all(added.map(async (d) => {
+        const ko = await translate(splitSlash(d.en).filter(Boolean), true);
+        if (!ko) fails.push(d);
+        fillKo(d, ko);
+      }));
+      $('edAiMsg').textContent = '';
+      if (fails.length) toast(`${fails.length}문장은 자동 번역을 못 했어요. 직접 쓰시거나 문장 오른쪽 위 "우리말 자동 번역"을 눌러 주세요.`, true);
+      const firstEmpty = $('edItems').querySelector(`.ed-item[data-i="${first}"] input.ko`); if (firstEmpty && !document.activeElement.matches('input')) firstEmpty.focus();
     };
     // 오른쪽: '/' 무시, 끊기부터 자동
     $('edAi').onclick = async () => {
