@@ -1,5 +1,5 @@
 // ECHO · 수업 구문 다시듣기 — 허브(pif-hub, beacon-syntax 로그인)에서 부르는 함수
-// 허브 로그인 토큰을 받아 허브에 직접 물어서(my_status / is_staff / can_manage_*) 누구인지 확인한다.
+// 허브 로그인 토큰(x-hub-token)을 받아 허브에 직접 물어서(my_status / is_staff / can_manage_*) 누구인지 확인한다.
 // 그래서 verify_jwt는 끔 (토큰이 이 프로젝트 것이 아님). 학생 데이터는 이 함수로만 오간다.
 //
 // 학생:  POST {op:'home'}                         우리 반 공개 수업 목록 + 내 기록
@@ -18,7 +18,7 @@ const URL_TTL = 6 * 3600;
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-hub-token",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -63,14 +63,16 @@ async function lessonsFor(db: any, classCode: string) {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "METHOD" }, 405);
-  const token = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  // 허브 토큰은 x-hub-token 머리글로 받음 (Authorization은 이 프로젝트 게이트웨이용). 드릴 선생님(classes)은 Authorization
+  const token = req.headers.get("x-hub-token") || (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  const drillToken = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
   let body: any;
   try { body = await req.json(); } catch { return json({ error: "BAD_JSON" }, 400); }
   const db = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
   try {
     // ---------- 드릴 선생님: 허브 반 목록 ----------
     if (body.op === "classes") {
-      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: `Bearer ${token}` } } });
+      const userClient = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: `Bearer ${drillToken}` } } });
       const { data: ok } = await userClient.rpc("is_staff");
       if (ok !== true) return json({ error: "NOT_STAFF" }, 403);
       const r = await fetch(`${HUB_URL}/rest/v1/rpc/echo_bridge_classes`, { method: "POST", headers: { apikey: HUB_KEY, "Content-Type": "application/json" }, body: JSON.stringify({ p_key: BRIDGE_KEY }) });
