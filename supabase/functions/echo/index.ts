@@ -54,7 +54,7 @@ async function signMany(db: any, paths: string[]) {
 }
 // 직독직해 시작 안내 음성: 밝고 경쾌한 목소리로 처음 한 번 만들어 저장해 두고 계속 씀
 const INTRO_TEXT = "자! 이제 우리말을 읽어 주면, 영어로 말해 보세요!";
-const INTRO_VOICE = "bQlkYuipD5BHEhntA5iz";   // JY — 밝고 경쾌한 한국어 여성 (안 되면 기본 우리말 목소리)
+const INTRO_VOICE = "Ir7oQcBXWiq4oFGROCfj";   // 원장님이 고른 목소리 (안 되면 기본 우리말 목소리)
 async function introPath(db: any, fallbackVoice: string) {
   const key = Deno.env.get("ELEVENLABS_API_KEY");
   for (const voice of [INTRO_VOICE, fallbackVoice]) {
