@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="app.css?v=4">
+<link rel="stylesheet" href="app.css?v=5">
 </head>
 <body>
 
@@ -55,9 +55,10 @@
     </aside>
     <main class="libmain">
       <div class="toolbar">
-        <input id="q" type="search" placeholder="문장·뜻·메모·출처 검색">
+        <input id="q" type="search" placeholder="문장·뜻·메모·출처·작성자 검색">
         <select id="tagFilter"><option value="">모든 태그</option></select>
         <select id="srcFilter"><option value="">모든 출처</option></select>
+        <select id="authorFilter"><option value="">모든 작성자</option></select>
         <select id="audioFilter">
           <option value="">음성 전체</option>
           <option value="ready">음성 있음</option>
@@ -196,6 +197,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=15"></script>
+<script src="app.js?v=16"></script>
 </body>
 </html>

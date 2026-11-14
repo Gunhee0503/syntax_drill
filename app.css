@@ -122,7 +122,8 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .mf .msg{margin:0 auto 0 0}
 
 /* editor */
-.ed-top{display:grid;grid-template-columns:160px 1fr;gap:12px;align-items:end}
+.ed-top{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.ed-top>label,.ed-top>div{min-width:170px}
 .ed-paste textarea{width:100%;min-height:110px;resize:vertical;line-height:1.6}
 .ed-paste .row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center}
 .ed-items{display:grid;gap:10px;margin-top:14px}
@@ -274,3 +275,5 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .srcprev{font-size:12.5px;color:var(--ink3);margin-top:8px}
 .srcprev b{color:var(--ink);font-weight:700}
 .tag.src{background:#e8eef7;color:#3b5784}
+.tag.au{background:#eef5ea;color:#3d6630}
+.tag.au::before{content:"✎ "}

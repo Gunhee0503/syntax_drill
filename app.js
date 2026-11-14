@@ -69,7 +69,7 @@ async function fn(op, body = {}) {
 }
 
 /* ---------- 데이터 ---------- */
-const D = { cats: [], sents: [], lessons: [], voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
+const D = { cats: [], sents: [], lessons: [], staff: [], me: '', voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
 const byId = (id) => D.sents.find((s) => s.id === id);
 function sortSents(a) {
   return a.sort((x, y) => {
@@ -82,18 +82,24 @@ function sortSents(a) {
   });
 }
 async function loadAll() {
-  const [c, s, l, v] = await Promise.all([
+  const [c, s, l, v, st] = await Promise.all([
     sb.from('drill_categories').select('*'),
     sb.from('drill_sentences').select('*'),
     sb.from('drill_lessons').select('*').order('lesson_date', { ascending: false }).order('created_at', { ascending: false }),
     sb.from('drill_settings').select('value').eq('key', 'voices').maybeSingle(),
+    sb.from('staff').select('email, name, role').order('created_at'),
   ]);
   for (const r of [c, s, l]) if (r.error) throw r.error;
   D.cats = c.data.sort((a, b) => natural(a.code, b.code));
   D.sents = sortSents(s.data);
   D.lessons = l.data;
   if (v.data && v.data.value) D.voices = { ...D.voices, ...v.data.value };
+  D.staff = (st && st.data) || [];
 }
+/* 작성자(강사): 선생님 계정 이름으로 고르고, 이름 그대로 저장 */
+const staffName = (x) => (x.name || '').trim() || String(x.email || '').split('@')[0];
+const myName = () => { const m = D.staff.find((x) => String(x.email).toLowerCase() === D.me.toLowerCase()); return m ? staffName(m) : ''; };
+const authorNames = () => [...new Set([...D.staff.map(staffName), ...D.sents.map((x) => x.author).filter(Boolean)])].filter(Boolean);
 function audioState(s) {
   if (L.busy.has(s.id)) return 'busy';
   if (!s.audio_en) return 'need';
@@ -138,7 +144,7 @@ async function boot() {
     await sb.auth.signOut();
     return showGate('선생님으로 등록된 이메일이 아니에요. 원장님께 설정 → 선생님 계정에서 이메일 등록을 요청하세요.');
   }
-  $('meEmail').textContent = session.user.email || '';
+  $('meEmail').textContent = session.user.email || ''; D.me = session.user.email || '';
   $('gate').hidden = true; $('app').hidden = false;
   try { await loadAll(); } catch (e) { toast('불러오기 실패: ' + errText(e), true); }
   restoreClass();
@@ -193,7 +199,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { cat: '', q: '', tag: '', src: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 function renderCats() {
   const count = (code) => D.sents.filter((s) => s.category === code).length;
@@ -271,9 +277,10 @@ function filtered() {
     if (L.star && !s.starred) return false;
     if (L.tag && !(s.tags || []).includes(L.tag)) return false;
     if (L.src && srcGroup(s) !== L.src) return false;
+    if (L.author && (L.author === '__none' ? s.author : s.author !== L.author)) return false;
     if (L.audio) { const a = audioState(s); if (L.audio === 'ready' ? a !== 'ready' : a === 'ready') return false; }
     if (q) {
-      const hay = (s.text + ' ' + koLine(s) + ' ' + (s.memo || '') + ' ' + (s.tags || []).join(' ') + ' ' + srcLabel(s)).toLowerCase();
+      const hay = (s.text + ' ' + koLine(s) + ' ' + (s.memo || '') + ' ' + (s.tags || []).join(' ') + ' ' + srcLabel(s) + ' ' + (s.author || '')).toLowerCase();
       const hayNs = hay.replace(/\s/g, '');
       const qq = q.replace(/모고|학평/g, '모의고사');
       if (!hay.includes(qq) && !hayNs.includes(qq.replace(/\s/g, ''))) return false;
@@ -286,8 +293,14 @@ function renderSrcFilter() {
   if (L.src && !groups.includes(L.src)) L.src = '';
   $('srcFilter').innerHTML = '<option value="">모든 출처</option>' + groups.map((g) => `<option ${g === L.src ? 'selected' : ''}>${esc(g)}</option>`).join('');
 }
+function renderAuthorFilter() {
+  const names = [...new Set(D.sents.map((x) => x.author).filter(Boolean))].sort(natural);
+  if (L.author && L.author !== '__none' && !names.includes(L.author)) L.author = '';
+  const none = D.sents.some((x) => !x.author);
+  $('authorFilter').innerHTML = '<option value="">모든 작성자</option>' + names.map((n) => `<option ${n === L.author ? 'selected' : ''}>${esc(n)}</option>`).join('') + (none ? `<option value="__none" ${L.author === '__none' ? 'selected' : ''}>작성자 없음</option>` : '');
+}
 function renderTagFilter() {
-  renderSrcFilter();
+  renderSrcFilter(); renderAuthorFilter();
   const tags = [...new Set(D.sents.flatMap((s) => s.tags || []))].sort(natural);
   const cur = L.tag;
   $('tagFilter').innerHTML = '<option value="">모든 태그</option>' + tags.map((t) => `<option ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
@@ -300,14 +313,14 @@ function sentHtml(s, no) {
   const hasKo = ch.some((c) => c.ko);
   const ko = hasKo ? ch.map((c) => esc(c.ko || '…')).join(sl) : '';
   const a = audioState(s);
-  const canMove = L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio;
+  const canMove = L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
   return `<div class="sent ${L.sel.has(s.id) ? 'sel' : ''}" data-id="${s.id}">
     <input type="checkbox" data-a="sel" ${L.sel.has(s.id) ? 'checked' : ''} aria-label="선택">
     <div class="no">${no}</div>
     <div class="body">
       <div class="en">${en}</div>
       ${ko ? `<div class="ko">${ko}</div>` : ''}
-      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
+      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${s.author ? `<span class="tag au" title="작성자">${esc(s.author)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
       ${s.memo ? `<div class="memo">${esc(s.memo)}</div>` : ''}
     </div>
     <div class="act">
@@ -356,6 +369,7 @@ function renderSelbar() {
 $('q').oninput = (e) => { L.q = e.target.value.trim(); renderLib(); };
 $('tagFilter').onchange = (e) => { L.tag = e.target.value; renderLib(); };
 $('srcFilter').onchange = (e) => { L.src = e.target.value; renderLib(); };
+$('authorFilter').onchange = (e) => { L.author = e.target.value; renderLib(); };
 $('audioFilter').onchange = (e) => { L.audio = e.target.value; renderLib(); };
 $('starFilter').onclick = () => { L.star = !L.star; renderLib(); };
 $('newBtn').onclick = () => openEditor(null);
@@ -497,6 +511,8 @@ function openEditor(s) {
       <div class="ed-top">
         <label>카테고리<select id="edCat">${catOpts(defCat)}</select></label>
         <div id="edNewCat" hidden><label>새 카테고리 번호<input id="edNewCode" placeholder="예: 2-3" maxlength="20"></label></div>
+        <label>작성자<select id="edAuthor">${(() => { const cur = s ? (s.author || '') : (store.get('lastAuthor', '') || myName()); const names = authorNames(); if (cur && !names.includes(cur)) names.push(cur);
+          return `<option value="">(지정 안 함)</option>` + names.map((n) => `<option ${n === cur ? 'selected' : ''}>${esc(n)}</option>`).join(''); })()}</select></label>
       </div>
       <div class="srcbox">
         <div class="srcrow">
@@ -707,7 +723,8 @@ function openEditor(s) {
     }
     store.set('lastCat', cat || '');
     const src = readSrc();
-    const srcCols = { source: src, source_label: srcParts(src).label || null };
+    const author = $('edAuthor').value || null; store.set('lastAuthor', author || '');
+    const srcCols = { source: src, source_label: srcParts(src).label || null, author };
     if (src) { const keep = { ...src }; delete keep.no; store.set('lastSrc', keep); } else store.set('lastSrc', {});
     const tagsOf = (t) => [...new Set(String(t || '').split(/[,#]/).map((x) => x.trim()).filter(Boolean))].slice(0, 8);
     $('edSave').disabled = true;
