@@ -763,7 +763,7 @@ function confirmBox(title, text, ok, danger) {
 /* =========================================================
  *  수업
  * ========================================================= */
-const O = Object.assign({ mode: 'full', speed: 1, rep: 1, think: 1, shadow: 0, enView: 'show', koView: 'show', auto: false, numOn: true }, store.get('opts', {}));
+const O = Object.assign({ mode: 'full', speed: 1, rep: 1, think: 1, shadow: 0, enView: 'show', koView: 'show', auto: false }, store.get('opts', {}));
 if (!['full', 'chunk', 'drill'].includes(O.mode)) O.mode = 'full';
 const C = { list: [], idx: 0, lessonId: null, lessonTitle: '' };
 const V = { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 };
@@ -913,7 +913,7 @@ function maskWord(w, kind) {
   return `<span class="mask" style="width:${Math.max(0.9, m[2].length * 0.52).toFixed(2)}em"></span>${esc(m[3])}`;
 }
 function enHtml(text, k) {
-  let kind = O.enView;
+  let kind = O.mode === 'drill' ? 'show' : O.enView;   // 직독직해는 보기 옵션 없이 항상 보이기
   if (V.enHideFrom != null && k >= V.enHideFrom) kind = 'hide';
   if (kind === 'show') return esc(text);
   return wordsOf(text).map((w) => maskWord(w, kind)).join(' ');
@@ -921,7 +921,7 @@ function enHtml(text, k) {
 function koVisible(k) {
   if (V.cue === k) return 'cue';
   if (V.koHideFrom != null) return k < V.koHideFrom ? 'on' : 'off';
-  return O.koView === 'show' ? 'on' : 'off';
+  return (O.mode === 'drill' || O.koView === 'show') ? 'on' : 'off';
 }
 function renderStage() {
   const s = curSent();
@@ -952,7 +952,8 @@ function syncControls() {
   const segOn = (id, v) => document.querySelectorAll(`#${id} button`).forEach((b) => b.classList.toggle('on', String(b.dataset.v) === String(v)));
   segOn('speed', O.speed); segOn('rep', O.rep); segOn('think', O.think); segOn('shadow', O.shadow); segOn('enView', O.enView); segOn('koView', O.koView);
   document.querySelectorAll('#modes button').forEach((b) => b.classList.toggle('on', b.dataset.mode === O.mode));
-  $('auto').checked = !!O.auto; $('numOn').checked = !!O.numOn;
+  $('auto').checked = !!O.auto;
+  $('enView').hidden = $('koView').hidden = O.mode === 'drill';
   $('shadow').hidden = O.mode !== 'chunk';   // 듣기만/따라 말하기는 끊어듣기에서만
 }
 const segNum = { speed: true, rep: true, think: true, shadow: true };
@@ -964,9 +965,8 @@ const segNum = { speed: true, rep: true, think: true, shadow: true };
   };
 });
 $('modes').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMode(b.dataset.mode); };
-function setMode(m) { stop(); O.mode = m; saveOpts(); syncControls(); setStateText(); }
+function setMode(m) { stop(); O.mode = m; saveOpts(); syncControls(); setStateText(); if (curSent()) drawChunks(); }
 $('auto').onchange = (e) => { O.auto = e.target.checked; saveOpts(); };
-$('numOn').onchange = (e) => { O.numOn = e.target.checked; saveOpts(); };
 $('prev').onclick = () => go(-1);
 $('next').onclick = () => go(1);
 $('play').onclick = () => run();
@@ -1066,7 +1066,9 @@ function stop() {
   P.paused = false; hideCount(); if (P.playing) setPlaying(false); else drawPlay(); resetV(); if (curSent()) drawChunks();
 }
 
+let numFailed = false;
 async function ensureNumbers() {
+  if (numFailed) return false;
   const need = Math.min(80, C.list.length);
   if (D.num && D.num.voice === D.voices.en && D.num.upto >= need) return true;
   try {
@@ -1075,7 +1077,7 @@ async function ensureNumbers() {
     const r = await fn('numbers', { upto });
     D.num = { voice: r.voice, upto, paths: r.paths };
     return true;
-  } catch (e) { toast('번호 음성을 준비하지 못해 번호 없이 재생해요. ' + errText(e), true); O.numOn = false; syncControls(); return false; }
+  } catch (e) { numFailed = true; toast('번호 음성을 준비하지 못해 이번에는 번호 없이 재생해요. ' + errText(e), true); return false; }
 }
 async function playNumber(n, tok) {
   const p = D.num && D.num.paths && D.num.paths[n];
@@ -1094,7 +1096,7 @@ async function playSentence(s, mode, tok) {
   if (needKo && !koUrl) { toast('이 문장은 우리말 음성이 없어 끊어듣기로 재생해요. ↻로 음성을 다시 만들어 주세요.', true); mode = 'chunk'; }
   if (tok !== P.tok) return false;
   const full = async () => { V.cur = -1; drawChunks(); return seg(P.en, enUrl, 0, null, O.speed, tok); };
-  if (O.numOn) { if (!await playNumber(C.idx + 1, tok)) return false; }
+  if (!await playNumber(C.idx + 1, tok)) return false;   // 항상 번호부터
   for (let r = 0; r < (O.rep || 1); r++) {
     if (r > 0 && !await wait(800, tok)) return false;
     resetV(); drawChunks();
@@ -1136,7 +1138,7 @@ async function run() {
   const tok = ++P.tok;
   setPlaying(true);
   try {
-    if (O.numOn) await ensureNumbers();
+    await ensureNumbers();
     if (tok !== P.tok) return;
     setStateText();
     for (;;) {
@@ -1168,8 +1170,8 @@ document.addEventListener('keydown', (e) => {
   else if (k === 'ArrowRight') { e.preventDefault(); go(1); }
   else if (k >= '1' && k <= '3') setMode(['full', 'chunk', 'drill'][+k - 1]);
   else if (k === 'Escape') { e.preventDefault(); stop(); }
-  else if (k === 'h' || k === 'H' || k === 'ㅗ') { O.enView = { show: 'initial', initial: 'hide', hide: 'show' }[O.enView]; saveOpts(); syncControls(); drawChunks(); }
-  else if (k === 'k' || k === 'K' || k === 'ㅏ') { O.koView = O.koView === 'show' ? 'hide' : 'show'; saveOpts(); syncControls(); drawChunks(); }
+  else if ((k === 'h' || k === 'H' || k === 'ㅗ') && O.mode !== 'drill') { O.enView = { show: 'initial', initial: 'hide', hide: 'show' }[O.enView]; saveOpts(); syncControls(); drawChunks(); }
+  else if ((k === 'k' || k === 'K' || k === 'ㅏ') && O.mode !== 'drill') { O.koView = O.koView === 'show' ? 'hide' : 'show'; saveOpts(); syncControls(); drawChunks(); }
   else if (k === 'f' || k === 'F' || k === 'ㄹ') toggleFs();
 });
 
