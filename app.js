@@ -105,6 +105,30 @@ const chunksOf = (s) => (s.chunks || []).filter((c) => String(c.en || '').trim()
 const enLine = (s) => chunksOf(s).map((c) => c.en).join(' / ');
 const koLine = (s) => chunksOf(s).map((c) => c.ko || '').join(' / ');
 
+/* ---------- 출처 (칸을 나눠 골라서 표기를 하나로 통일) ---------- */
+const SRC_TYPES = [['', '출처 없음'], ['mock', '모의고사'], ['csat', '수능'], ['ebs', 'EBS·부교재'], ['text', '교과서'], ['etc', '기타']];
+const squash = (v) => String(v || '').replace(/\s+/g, ' ').trim();
+const digits = (v) => String(v || '').replace(/[^0-9~\-]/g, '');
+function srcParts(src) {
+  if (!src || !src.type) return { group: '', label: '' };
+  let group = '';
+  if (src.type === 'mock') group = `${src.year || '?'} ${src.grade || '?'} ${src.month || '?'}월 모의고사`;
+  else if (src.type === 'csat') group = `${src.year || '?'}학년도 수능`;
+  else if (src.type === 'ebs' || src.type === 'text') group = [src.book, src.unit].filter(Boolean).join(' ');
+  else group = src.etc || '';
+  const label = src.no && src.type !== 'etc' ? `${group} ${src.no}번` : group;
+  return { group: squash(group), label: squash(label) };
+}
+const srcLabel = (s) => s.source_label || '';
+const srcGroup = (s) => srcParts(s.source).group;
+// 예전에 쓴 책 이름과 띄어쓰기·대소문자만 다르면 예전 이름으로 맞춤
+function canonBook(name) {
+  const n = squash(name); if (!n) return '';
+  const key = n.replace(/\s/g, '').toLowerCase();
+  const hit = D.sents.map((x) => x.source && x.source.book).find((b) => b && b.replace(/\s/g, '').toLowerCase() === key);
+  return hit || n;
+}
+
 /* ---------- 로그인 ---------- */
 async function boot() {
   const { data: { session } } = await sb.auth.getSession();
@@ -169,7 +193,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { cat: '', q: '', tag: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { cat: '', q: '', tag: '', src: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 function renderCats() {
   const count = (code) => D.sents.filter((s) => s.category === code).length;
@@ -246,15 +270,24 @@ function filtered() {
     if (L.cat === '__none' ? s.category : (L.cat && s.category !== L.cat)) return false;
     if (L.star && !s.starred) return false;
     if (L.tag && !(s.tags || []).includes(L.tag)) return false;
+    if (L.src && srcGroup(s) !== L.src) return false;
     if (L.audio) { const a = audioState(s); if (L.audio === 'ready' ? a !== 'ready' : a === 'ready') return false; }
     if (q) {
-      const hay = (s.text + ' ' + koLine(s) + ' ' + (s.memo || '') + ' ' + (s.tags || []).join(' ')).toLowerCase();
-      if (!hay.includes(q)) return false;
+      const hay = (s.text + ' ' + koLine(s) + ' ' + (s.memo || '') + ' ' + (s.tags || []).join(' ') + ' ' + srcLabel(s)).toLowerCase();
+      const hayNs = hay.replace(/\s/g, '');
+      const qq = q.replace(/모고|학평/g, '모의고사');
+      if (!hay.includes(qq) && !hayNs.includes(qq.replace(/\s/g, ''))) return false;
     }
     return true;
   });
 }
+function renderSrcFilter() {
+  const groups = [...new Set(D.sents.map(srcGroup).filter(Boolean))].sort((a, b) => natural(b, a));
+  if (L.src && !groups.includes(L.src)) L.src = '';
+  $('srcFilter').innerHTML = '<option value="">모든 출처</option>' + groups.map((g) => `<option ${g === L.src ? 'selected' : ''}>${esc(g)}</option>`).join('');
+}
 function renderTagFilter() {
+  renderSrcFilter();
   const tags = [...new Set(D.sents.flatMap((s) => s.tags || []))].sort(natural);
   const cur = L.tag;
   $('tagFilter').innerHTML = '<option value="">모든 태그</option>' + tags.map((t) => `<option ${t === cur ? 'selected' : ''}>${esc(t)}</option>`).join('');
@@ -274,7 +307,7 @@ function sentHtml(s, no) {
     <div class="body">
       <div class="en">${en}</div>
       ${ko ? `<div class="ko">${ko}</div>` : ''}
-      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
+      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
       ${s.memo ? `<div class="memo">${esc(s.memo)}</div>` : ''}
     </div>
     <div class="act">
@@ -322,6 +355,7 @@ function renderSelbar() {
 }
 $('q').oninput = (e) => { L.q = e.target.value.trim(); renderLib(); };
 $('tagFilter').onchange = (e) => { L.tag = e.target.value; renderLib(); };
+$('srcFilter').onchange = (e) => { L.src = e.target.value; renderLib(); };
 $('audioFilter').onchange = (e) => { L.audio = e.target.value; renderLib(); };
 $('starFilter').onclick = () => { L.star = !L.star; renderLib(); };
 $('newBtn').onclick = () => openEditor(null);
@@ -464,6 +498,22 @@ function openEditor(s) {
         <label>카테고리<select id="edCat">${catOpts(defCat)}</select></label>
         <div id="edNewCat" hidden><label>새 카테고리 번호<input id="edNewCode" placeholder="예: 2-3" maxlength="20"></label></div>
       </div>
+      <div class="srcbox">
+        <div class="srcrow">
+          <label>출처<select id="srType">${SRC_TYPES.map(([v, t]) => `<option value="${v}">${t}</option>`).join('')}</select></label>
+          <label data-src="mock csat"><span id="srYearL">연도</span><select id="srYear">${(() => { const y = new Date().getFullYear(); let o = ''; for (let i = y + 1; i >= 2010; i--) o += `<option ${i === y ? 'selected' : ''}>${i}</option>`; return o; })()}</select></label>
+          <label data-src="mock">학년<select id="srGrade"><option>고1</option><option>고2</option><option>고3</option></select></label>
+          <label data-src="mock">월<select id="srMonth">${[3, 4, 6, 7, 9, 10, 11].map((m) => `<option value="${m}">${m}월</option>`).join('')}</select></label>
+          <label data-src="ebs text" class="wide">책 이름<input id="srBook" list="srBooks" placeholder="예: 수능특강 영어"></label>
+          <label data-src="ebs text">강·단원<input id="srUnit" list="srUnits" placeholder="예: 3강"></label>
+          <label data-src="mock csat ebs text">번호<input id="srNo" inputmode="numeric" placeholder="예: 29"></label>
+          <label data-src="etc" class="wide">출처<input id="srEtc" list="srEtcs" placeholder="자유 입력"></label>
+        </div>
+        <div class="srcprev">저장될 출처: <b id="srLabel">없음</b></div>
+        <datalist id="srBooks">${[...new Set(D.sents.map((x) => x.source && x.source.book).filter(Boolean))].map((b) => `<option value="${esc(b)}">`).join('')}</datalist>
+        <datalist id="srUnits">${[...new Set(D.sents.map((x) => x.source && x.source.unit).filter(Boolean))].sort(natural).map((b) => `<option value="${esc(b)}">`).join('')}</datalist>
+        <datalist id="srEtcs">${[...new Set(D.sents.map((x) => x.source && x.source.etc).filter(Boolean))].map((b) => `<option value="${esc(b)}">`).join('')}</datalist>
+      </div>
       ${isNew ? `<div class="ed-paste">
         <label>문장 붙여넣기 <span class="small">— 한 줄에 한 문장, 의미구는 '/'로 끊기. 우리말은 자동으로 달리고, 칸에서 바로 고칠 수 있어요.</span>
           <textarea id="edPaste" placeholder="The students / who studied hard / passed the exam.&#10;It is important / that we keep our promises."></textarea></label>
@@ -506,6 +556,31 @@ function openEditor(s) {
     const box = $('edItems').querySelector(`.ed-item[data-i="${i}"]`); if (box) box.querySelector('.kgrid').innerHTML = rowsHtml(drafts[i]);
   };
   draw();
+  // 출처: 수정이면 그 문장 것, 새 문장이면 지난번에 쓴 출처(번호 빼고)로 시작
+  const src0 = s ? (s.source || {}) : store.get('lastSrc', {});
+  const setv = (id, v) => { if (v != null && v !== '') $(id).value = v; };
+  setv('srType', src0.type || ''); setv('srYear', src0.year); setv('srGrade', src0.grade); setv('srMonth', src0.month);
+  setv('srBook', src0.book); setv('srUnit', src0.unit); setv('srNo', s ? src0.no : ''); setv('srEtc', src0.etc);
+  const readSrc = () => {
+    const t = $('srType').value; if (!t) return null;
+    const src = { type: t };
+    if (t === 'mock' || t === 'csat') src.year = +$('srYear').value;
+    if (t === 'mock') { src.grade = $('srGrade').value; src.month = +$('srMonth').value; }
+    if (t === 'ebs' || t === 'text') { src.book = canonBook($('srBook').value); src.unit = squash($('srUnit').value).replace(/(\d)\s+(강|과|단원|번|회)/g, '$1$2'); }
+    if (t !== 'etc') { const n = digits($('srNo').value); if (n) src.no = n; }
+    if (t === 'etc') src.etc = squash($('srEtc').value);
+    Object.keys(src).forEach((k) => { if (src[k] === '' || src[k] == null || Number.isNaN(src[k])) delete src[k]; });
+    return src;
+  };
+  const syncSrc = () => {
+    const t = $('srType').value;
+    document.querySelectorAll('.srcbox [data-src]').forEach((el) => { el.hidden = !t || !el.dataset.src.split(' ').includes(t); });
+    $('srYearL').textContent = t === 'csat' ? '학년도' : '연도';
+    $('srLabel').textContent = srcParts(readSrc()).label || '없음';
+  };
+  document.querySelector('.srcbox').addEventListener('input', syncSrc);
+  document.querySelector('.srcbox').addEventListener('change', syncSrc);
+  syncSrc();
   $('edCat').onchange = () => { $('edNewCat').hidden = $('edCat').value !== '__new'; if ($('edCat').value === '__new') $('edNewCode').focus(); };
   $('edItems').oninput = (e) => {
     const box = e.target.closest('.ed-item'); if (!box) return;
@@ -631,20 +706,23 @@ function openEditor(s) {
       if (!await addCategoryInline(cat)) return;
     }
     store.set('lastCat', cat || '');
+    const src = readSrc();
+    const srcCols = { source: src, source_label: srcParts(src).label || null };
+    if (src) { const keep = { ...src }; delete keep.no; store.set('lastSrc', keep); } else store.set('lastSrc', {});
     const tagsOf = (t) => [...new Set(String(t || '').split(/[,#]/).map((x) => x.trim()).filter(Boolean))].slice(0, 8);
     $('edSave').disabled = true;
     const toTts = [];
     try {
       if (isNew) {
         let pos = maxPos(cat);
-        const rows = drafts.map((d, i) => ({ category: cat, position: ++pos, chunks: checked[i].chunks, text: checked[i].chunks.map((c) => c.en).join(' '), tags: tagsOf(d.tags), memo: d.memo.trim() || null }));
+        const rows = drafts.map((d, i) => ({ ...srcCols, category: cat, position: ++pos, chunks: checked[i].chunks, text: checked[i].chunks.map((c) => c.en).join(' '), tags: tagsOf(d.tags), memo: d.memo.trim() || null }));
         const { data, error } = await sb.from('drill_sentences').insert(rows).select();
         if (error) throw error;
         D.sents.push(...data); data.forEach((r) => toTts.push(r.id));
       } else {
         const d = drafts[0], r = checked[0];
         const changed = JSON.stringify(r.chunks) !== JSON.stringify(chunksOf(s).map((c) => ({ en: c.en, ko: c.ko || '' })));
-        const upd = { category: cat, chunks: r.chunks, text: r.chunks.map((c) => c.en).join(' '), tags: tagsOf(d.tags), memo: d.memo.trim() || null };
+        const upd = { ...srcCols, category: cat, chunks: r.chunks, text: r.chunks.map((c) => c.en).join(' '), tags: tagsOf(d.tags), memo: d.memo.trim() || null };
         if (cat !== s.category) upd.position = maxPos(cat) + 1;
         if (changed) upd.audio_key = null;
         const { error } = await sb.from('drill_sentences').update(upd).eq('id', s.id);
@@ -848,7 +926,7 @@ function koVisible(k) {
 function renderStage() {
   const s = curSent();
   $('stNum').textContent = s ? `${C.idx + 1} / ${C.list.length}` : '–';
-  $('stMeta').innerHTML = s ? `${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
+  $('stMeta').innerHTML = s ? `${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
   setStateText();
   if (!s) {
     $('stChunks').innerHTML = '<div class="empty-stage">왼쪽 <b>불러오기</b>에서 카테고리나 수업 기록을 고르거나,<br>문장 관리에서 문장을 골라 수업 목록에 넣으세요.</div>';
