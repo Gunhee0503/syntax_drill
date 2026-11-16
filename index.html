@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="app.css?v=6">
+<link rel="stylesheet" href="app.css?v=7">
 </head>
 <body>
 
@@ -66,11 +66,15 @@
         </select>
         <button class="btn ghost" id="starFilter" aria-pressed="false">★ 별표만</button>
         <span class="grow"></span>
+        <button class="btn" id="newLessonBtn">+ 새 수업</button>
         <button class="btn primary" id="newBtn">+ 새 문장</button>
       </div>
+      <div class="lessonbar" id="lessonBar" hidden></div>
       <div class="selbar" id="selbar" hidden>
         <b id="selCount">0개 선택</b>
         <button class="btn sm" id="selAll">보이는 문장 모두 선택</button>
+        <button class="btn primary sm" id="selToLesson" hidden>이 수업에 넣기</button>
+        <button class="btn sm" id="selOutLesson" hidden>이 수업에서 빼기</button>
         <button class="btn primary sm" id="selToClass">수업 목록에 넣기</button>
         <button class="btn sm" id="selTts">음성 만들기</button>
         <button class="btn sm" id="selMove">카테고리 옮기기</button>
@@ -197,6 +201,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=17"></script>
+<script src="app.js?v=18"></script>
 </body>
 </html>

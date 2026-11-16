@@ -199,7 +199,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 function renderCats() {
   const count = (code) => D.sents.filter((s) => s.category === code).length;
@@ -277,6 +277,7 @@ function filtered() {
     if (L.star && !s.starred) return false;
     if (L.tag && !(s.tags || []).includes(L.tag)) return false;
     if (L.src && srcGroup(s) !== L.src) return false;
+    if (L.onlyLesson && editL() && !editL().items.includes(s.id)) return false;
     if (L.author && (L.author === '__none' ? s.author : s.author !== L.author)) return false;
     if (L.audio) { const a = audioState(s); if (L.audio === 'ready' ? a !== 'ready' : a === 'ready') return false; }
     if (q) {
@@ -313,7 +314,7 @@ function sentHtml(s, no) {
   const hasKo = ch.some((c) => c.ko);
   const ko = hasKo ? ch.map((c) => esc(c.ko || '…')).join(sl) : '';
   const a = audioState(s);
-  const canMove = L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
+  const canMove = !L.onlyLesson && L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
   return `<div class="sent ${L.sel.has(s.id) ? 'sel' : ''}" data-id="${s.id}">
     <input type="checkbox" data-a="sel" ${L.sel.has(s.id) ? 'checked' : ''} aria-label="선택">
     <div class="no">${no}</div>
@@ -335,7 +336,7 @@ function sentHtml(s, no) {
   </div>`;
 }
 function renderLib() {
-  renderCats(); renderTagFilter();
+  renderCats(); renderTagFilter(); renderLessonBar();
   const list = filtered();
   $('starFilter').setAttribute('aria-pressed', L.star ? 'true' : 'false');
   let h = '';
@@ -736,6 +737,7 @@ function openEditor(s) {
         const { data, error } = await sb.from('drill_sentences').insert(rows).select();
         if (error) throw error;
         D.sents.push(...data); data.forEach((r) => toTts.push(r.id));
+        if (editL()) await addToLesson(data.map((r) => r.id), true);
       } else {
         const d = drafts[0], r = checked[0];
         const changed = JSON.stringify(r.chunks) !== JSON.stringify(chunksOf(s).map((c) => ({ en: c.en, ko: c.ko || '' })));
@@ -942,6 +944,102 @@ $('plSave').onclick = () => {
   };
   $('lsSave').onclick = () => save(false);
   if (cur) $('lsNew').onclick = () => save(true);
+};
+
+/* ---------- 새 수업: 반·날짜를 먼저 정하고 그날 문장을 모아 올리기 ---------- */
+function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
+function editL() { return (L.lesson && D.lessons.find((l) => l.id === L.lesson)) || null; }
+function setEditLesson(id) {
+  L.lesson = id || null; store.set('editLesson', L.lesson);
+  if (!id) L.onlyLesson = false;
+  renderLib();
+}
+async function patchLesson(l, patch) {
+  const { data, error } = await sb.from('drill_lessons').update(patch).eq('id', l.id).select().single();
+  if (error) { toast(errText(error), true); return null; }
+  D.lessons = D.lessons.map((x) => (x.id === data.id ? data : x));
+  if (C.lessonId === data.id) {
+    const cur = C.list[C.idx];
+    C.list = [...data.items]; C.idx = Math.max(0, C.list.indexOf(cur)); C.lessonTitle = `${data.lesson_date} ${data.title}`; saveClass(); renderPl(); renderStage();
+  }
+  return data;
+}
+async function addToLesson(ids, quiet) {
+  const l = editL(); if (!l) return;
+  const items = [...(l.items || [])]; let n = 0;
+  ids.forEach((id) => { if (!items.includes(id)) { items.push(id); n++; } });
+  if (!n) { if (!quiet) toast('이미 이 수업에 들어 있는 문장이에요.'); return; }
+  if (await patchLesson(l, { items })) { if (!quiet) toast(`이 수업에 ${n}문장을 넣었어요. (모두 ${items.length}문장)`); renderLib(); }
+}
+function renderLessonBar() {
+  const l = editL(), bar = $('lessonBar');
+  $('selToLesson').hidden = !l; $('selOutLesson').hidden = !(l && L.onlyLesson);
+  if (!l) { bar.hidden = true; return; }
+  const d = new Date(l.lesson_date + 'T00:00:00'), n = (l.items || []).length;
+  bar.hidden = false;
+  bar.innerHTML = `<div class="lb-t"><span class="lb-k">편집 중인 수업</span><b>${d.getMonth() + 1}/${d.getDate()} · ${esc(l.class_name || '반 지정 안 함')}</b><span class="lb-s">${esc(l.title)} · ${n}문장</span>
+      <span class="lb-p ${l.published ? 'on' : ''}">${l.published ? 'ECHO 공개 중' : l.class_code ? 'ECHO 공개 전' : ''}</span></div>
+    <div class="lb-a"><button class="btn sm ${L.onlyLesson ? 'primary' : ''}" id="lbOnly" aria-pressed="${L.onlyLesson}">이 수업 문장만 보기</button>
+      ${l.class_code ? `<button class="btn sm" id="lbPub">${l.published ? '공개 내리기' : '학생에게 공개'}</button>` : ''}
+      <button class="btn sm" id="lbOpen">수업 화면에서 열기</button><button class="btn ghost sm" id="lbEdit">수업 정보</button><button class="btn ghost sm" id="lbEnd">편집 끝내기</button></div>
+    <p class="lb-h">이제 <b>+ 새 문장</b>으로 올리는 문장은 이 수업에 바로 들어가요. 있던 문장은 체크한 뒤 <b>이 수업에 넣기</b>.</p>`;
+  $('lbOnly').onclick = () => { L.onlyLesson = !L.onlyLesson; renderLib(); };
+  $('lbEnd').onclick = () => setEditLesson(null);
+  $('lbEdit').onclick = () => openNewLesson(l);
+  $('lbOpen').onclick = () => {
+    if (!n) return toast('아직 이 수업에 문장이 없어요.', true);
+    stop(); C.list = [...l.items]; C.idx = 0; C.lessonId = l.id; C.lessonTitle = `${l.lesson_date} ${l.title}`; saveClass(); renderPl(); renderStage(); switchTab('class');
+  };
+  if ($('lbPub')) $('lbPub').onclick = async () => {
+    if (!l.published && !n) return toast('문장을 먼저 넣어 주세요.', true);
+    const r = await patchLesson(l, { published: !l.published });
+    if (r) { toast(r.published ? `${r.class_name} 학생들에게 ECHO로 공개했어요.` : '학생 공개를 내렸어요.'); renderLib(); }
+  };
+}
+function openNewLesson(edit) {
+  const recent = D.lessons.filter((x) => x.id !== (edit && edit.id)).slice(0, 5);
+  openModal(`
+    <div class="mh"><h3>${edit ? '수업 정보 고치기' : '새 수업 만들기'}</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <label>반<select id="nlClass"><option value="">반 목록 불러오는 중…</option></select></label>
+      <label>수업 날짜<input type="date" id="nlDate" value="${esc(edit ? edit.lesson_date : kstToday())}"></label>
+      <label>제목<input id="nlTitle" maxlength="60" value="${esc(edit ? edit.title : '')}" placeholder="예: 관계대명사 수식 구조"></label>
+      ${edit ? '' : '<label class="chk" style="color:var(--ink2)"><input type="checkbox" id="nlPub"> 문장을 올리는 대로 바로 학생에게 공개 (ECHO)</label>'}
+      ${!edit && recent.length ? `<div class="nl-recent"><span class="small">최근 수업 이어서 편집</span>${recent.map((x) => `<button class="btn ghost sm" data-nl="${x.id}">${esc(x.lesson_date.slice(5).replace('-', '/'))} ${esc(x.class_name || '')} · ${esc(x.title)}</button>`).join('')}</div>` : ''}
+    </div>
+    <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="nlGo">${edit ? '저장' : '만들고 문장 올리기'}</button></div>`, 'sm');
+  loadHubClasses().then((list) => {
+    const sel = $('nlClass'); if (!sel) return;
+    const cur = edit ? (edit.class_code || '') : store.get('lastEchoClass', '');
+    sel.innerHTML = '<option value="">반 지정 안 함 (선생님만)</option>' + list.map((c) => `<option value="${esc(c.code)}" ${c.code === cur ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  });
+  document.querySelectorAll('[data-nl]').forEach((b) => { b.onclick = () => { closeModal(); setEditLesson(b.dataset.nl); toast('이 수업을 이어서 편집해요.'); }; });
+  $('nlGo').onclick = async () => {
+    const code = $('nlClass').value, cls = (HUB_CLASSES || []).find((c) => c.code === code);
+    const date = $('nlDate').value || kstToday();
+    const title = $('nlTitle').value.trim() || `${cls ? cls.name : ''} 구문 수업`.trim();
+    store.set('lastEchoClass', code);
+    const row = { lesson_date: date, title, class_code: code || null, class_name: cls ? cls.name : null };
+    if (edit) {
+      if (!code) row.published = false;
+      const r = await patchLesson(edit, row); if (!r) return;
+      closeModal(); renderLib(); return toast('수업 정보를 고쳤어요.');
+    }
+    row.items = []; row.published = !!(code && $('nlPub').checked);
+    const { data, error } = await sb.from('drill_lessons').insert(row).select().single();
+    if (error) return toast(errText(error), true);
+    D.lessons.unshift(data); D.lessons.sort((a, b) => String(b.lesson_date).localeCompare(String(a.lesson_date)));
+    closeModal(); L.onlyLesson = true; setEditLesson(data.id);
+    toast('수업을 만들었어요. 이제 + 새 문장으로 올리면 이 수업에 바로 들어가요.');
+    openEditor(null);
+  };
+}
+$('newLessonBtn').onclick = () => openNewLesson(null);
+$('selToLesson').onclick = () => { addToLesson(D.sents.filter((s) => L.sel.has(s.id)).map((s) => s.id)); L.sel.clear(); };
+$('selOutLesson').onclick = async () => {
+  const l = editL(); if (!l) return;
+  const out = new Set(L.sel); const items = (l.items || []).filter((id) => !out.has(id));
+  if (await patchLesson(l, { items })) { L.sel.clear(); renderLib(); toast('이 수업에서 뺐어요. 문장 자체는 그대로 있어요.'); }
 };
 
 /* ---------- 무대 그리기 ---------- */
