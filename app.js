@@ -977,11 +977,13 @@ function renderStage() {
 }
 function drawChunks() {
   const s = curSent(); if (!s) return;
-  const ch = chunksOf(s);
+  const ch = chunksOf(s), tap = O.mode !== 'full';
+  $('stChunks').classList.toggle('tap', tap);
   $('stChunks').innerHTML = ch.map((c, k) => {
     const kv = koVisible(k);
     const dim = V.cur >= 0 && k !== V.cur;
-    return `<div class="ck ${k === V.cur ? 'cur' : ''} ${dim ? 'dim' : ''}"><div class="e">${enHtml(c.en, k)}</div><div class="k ${kv === 'off' ? 'off' : ''} ${kv === 'cue' ? 'cue' : ''}">${esc(c.ko || '')}</div></div>`;
+    const a = tap ? ` data-k="${k}" role="button" tabindex="0" title="눌러서 이 부분 다시 듣기"` : '';
+    return `<div class="ck ${k === V.cur ? 'cur' : ''} ${dim ? 'dim' : ''}"${a}><div class="e">${enHtml(c.en, k)}</div><div class="k ${kv === 'off' ? 'off' : ''} ${kv === 'cue' ? 'cue' : ''}">${esc(c.ko || '')}</div></div>`;
   }).join('');
 }
 function setStateText(txt) {
@@ -1195,6 +1197,25 @@ async function run() {
   } catch (e) { if (tok === P.tok) toast(errText(e), true); }
   if (tok === P.tok) { setPlaying(false); resetV(); drawChunks(); }
 }
+// 끊어듣기·직독직해: 의미구를 누르면 그 부분만 다시 (직독직해는 우리말 → 영어)
+async function playPart(k) {
+  const s = curSent(); if (!s || !s.audio_en) return;
+  const te = (s.times_en || [])[k], tk = (s.times_ko || [])[k];
+  if (!te) return toast('이 부분은 음성 구간 정보가 없어요. ↻로 음성을 다시 만들어 주세요.', true);
+  stop();
+  const tok = ++P.tok;
+  V.cur = k; drawChunks(); setStateText(`${k + 1}번째 의미구 다시 듣기`);
+  try {
+    if (O.mode === 'drill' && tk && s.audio_ko) {
+      if (!await seg(P.ko, await audioUrl(s.audio_ko), tk[0], tk[1], 1, tok)) return;
+      if (!await wait(400, tok)) return;
+    }
+    await seg(P.en, await audioUrl(s.audio_en), te[0], te[1], O.speed, tok);
+  } catch (e) { if (tok === P.tok) toast(errText(e), true); }
+  if (tok === P.tok) { V.cur = -1; drawChunks(); setStateText(); }
+}
+$('stChunks').addEventListener('click', (e) => { const c = e.target.closest('.ck[data-k]'); if (c) playPart(Number(c.dataset.k)); });
+$('stChunks').addEventListener('keydown', (e) => { const c = e.target.closest('.ck[data-k]'); if (c && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); playPart(Number(c.dataset.k)); } });
 async function preview(s) {
   stop();
   const tok = ++P.tok;
