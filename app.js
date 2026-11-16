@@ -1302,7 +1302,7 @@ async function playPart(k) {
   if (!te) return toast('이 부분은 음성 구간 정보가 없어요. ↻로 음성을 다시 만들어 주세요.', true);
   stop();
   const tok = ++P.tok;
-  V.cur = k; drawChunks(); setStateText(`${k + 1}번째 의미구 다시 듣기`);
+  V.cur = k; drawChunks(); setPlaying(true); setStateText(`${k + 1}번째 의미구 다시 듣기`);   // 재생 중으로 표시해야 ❚❚·Space로 일시정지됨
   try {
     if (O.mode === 'drill' && tk && s.audio_ko) {
       if (!await seg(P.ko, await audioUrl(s.audio_ko), tk[0], tk[1], 1, tok)) return;
@@ -1310,7 +1310,7 @@ async function playPart(k) {
     }
     await seg(P.en, await audioUrl(s.audio_en), te[0], te[1], O.speed, tok);
   } catch (e) { if (tok === P.tok) toast(errText(e), true); }
-  if (tok === P.tok) { V.cur = -1; drawChunks(); setStateText(); }
+  if (tok === P.tok) { setPlaying(false); V.cur = -1; drawChunks(); }
 }
 $('stChunks').addEventListener('click', (e) => { const c = e.target.closest('.ck[data-k]'); if (c) playPart(Number(c.dataset.k)); });
 $('stChunks').addEventListener('keydown', (e) => { const c = e.target.closest('.ck[data-k]'); if (c && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); playPart(Number(c.dataset.k)); } });
