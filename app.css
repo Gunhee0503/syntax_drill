@@ -291,3 +291,34 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .tag.src{background:#e8eef7;color:#3b5784}
 .tag.au{background:#eef5ea;color:#3d6630}
 .tag.au::before{content:"✎ "}
+
+/* 내신 세트 */
+.side-h2{margin-top:22px;padding-top:14px;border-top:1px solid var(--line)}
+.examlist .ttl{text-align:left}
+.examlist li.xs{font-weight:700}
+.examlist li.xs.empty{color:var(--ink3);font-weight:600}
+.examlist li.xset{padding-left:22px;font-size:13px}
+.examlist li.xset .ttl{color:var(--ink2)}
+.examlist li.xset.on .ttl{color:var(--ink)}
+.examlist .pub{font-style:normal;color:#2f8c7a;font-size:9px;vertical-align:2px}
+.examlist li.empty{cursor:default;color:var(--ink3);font-size:13px}
+.exambar{background:#eef4fb;border-color:#c9dbef}
+.exambar .lb-k{color:#2f5f93}
+.exambar .lb-h{color:#46617f}
+.lessonbar .lb-scope{flex-basis:100%;margin:0;font-size:13px;color:var(--ink2);white-space:pre-wrap}
+.lessonbar .lb-scope span{display:inline-block;font-size:11px;font-weight:700;color:#2f5f93;background:#dde9f6;border-radius:6px;padding:1px 6px;margin-right:6px}
+.tag.ex{background:#e6eef9;color:#2f5f93}
+.xinfo{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:8px;padding:8px 10px;background:#f6f8fc;border-radius:10px;font-size:12.5px}
+.xinfo .xt{font-weight:700;color:#2f5f93;background:#e1ebf8;border-radius:6px;padding:2px 7px}
+.xinfo .xl{color:#d08a14;letter-spacing:1px}
+.xinfo .xp{color:var(--ink);font-weight:600}
+.xinfo .xnone{color:var(--ink3)}
+.icon.xbtn{font-size:15px}
+.xgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.xgrid label{margin:0}
+.xtypes{display:flex;flex-wrap:wrap;gap:6px 14px;margin:6px 0 14px}
+.xl-h{font-size:13px;font-weight:700;color:var(--ink2);margin:4px 0 4px}
+@media (max-width:720px){.xgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.xseg{display:inline-flex;gap:4px;background:#f0ede7;border-radius:10px;padding:3px;margin-bottom:6px}
+.xseg button{border:0;background:none;padding:6px 12px;border-radius:8px;font-size:13px;font-weight:600;color:var(--ink2);min-height:34px}
+.xseg button.on{background:#fff;color:#d08a14;box-shadow:0 1px 2px rgba(0,0,0,.08)}

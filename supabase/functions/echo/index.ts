@@ -3,8 +3,8 @@
 // 그래서 verify_jwt는 끔 (토큰이 이 프로젝트 것이 아님). 학생 데이터는 이 함수로만 오간다.
 //
 // 학생:  POST {op:'home'}                         우리 반 공개 수업 목록 + 내 기록
-//        POST {op:'lesson', id | set:'all'|'star'} 문장 + 음성 임시 주소(6시간)
-//        POST {op:'log', lesson_id, event:'open'|'play'|'complete'}
+//        POST {op:'lesson', id | set:'all'|'star' | exam} 문장 + 음성 임시 주소(6시간)
+//        POST {op:'log', lesson_id | exam_id, event:'open'|'play'|'complete'}
 //        POST {op:'star', sentence_id, on}
 // 허브 관리자: POST {op:'admin_student', student_id, class_code} / {op:'admin_class', class_code}
 // 드릴 선생님(이 프로젝트 로그인): POST {op:'classes'}  허브 반 목록
@@ -78,6 +78,16 @@ async function introPath(db: any, fallbackVoice: string) {
 }
 const sentenceCols = "id, chunks, text, source_label, audio_en, audio_ko, times_en, times_ko";
 
+const EXAM_NAME: Record<string, string> = { mid: "중간", final: "기말" };
+const examLabel = (x: any) => `${x.school} ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam] || ""}`;
+// 내신 세트: 우리 반에 공개된 것 + 세트별 문장 순서
+async function examsFor(db: any, classCode: string) {
+  const { data: sets } = await db.from("drill_exam_sets").select("id, school, grade, year, term, exam, scope, class_code")
+    .eq("class_code", classCode).eq("published", true).order("year", { ascending: false }).order("updated_at", { ascending: false });
+  const ids = (sets || []).map((x: any) => x.id);
+  const { data: items } = ids.length ? await db.from("drill_exam_items").select("set_id, sentence_id, position, types, point, level").in("set_id", ids).order("position") : { data: [] };
+  return (sets || []).map((x: any) => ({ ...x, items: (items || []).filter((it: any) => it.set_id === x.id) }));
+}
 async function lessonsFor(db: any, classCode: string) {
   const { data } = await db.from("drill_lessons").select("id, title, lesson_date, items, class_code, published")
     .eq("class_code", classCode).eq("published", true).order("lesson_date", { ascending: false }).order("created_at", { ascending: false });
@@ -115,7 +125,13 @@ Deno.serve(async (req) => {
       let q = db.from("drill_listens").select("student_id, lesson_id, plays, completed, last_at").in("lesson_id", ids.length ? ids : ["00000000-0000-0000-0000-000000000000"]);
       if (body.op === "admin_student") q = q.eq("student_id", String(body.student_id || ""));
       const { data: listens } = await q;
-      return json({ lessons: lessons.map((l: any) => ({ id: l.id, title: l.title, lesson_date: l.lesson_date, count: l.items.length })), listens: listens || [] });
+      const exams = await examsFor(db, code);
+      const xids = exams.map((x: any) => x.id);
+      let xq = db.from("drill_exam_listens").select("student_id, set_id, plays, completed, last_at").in("set_id", xids.length ? xids : ["00000000-0000-0000-0000-000000000000"]);
+      if (body.op === "admin_student") xq = xq.eq("student_id", String(body.student_id || ""));
+      const { data: xlistens } = await xq;
+      return json({ lessons: lessons.map((l: any) => ({ id: l.id, title: l.title, lesson_date: l.lesson_date, count: l.items.length })), listens: listens || [],
+        exams: exams.map((x: any) => ({ id: x.id, label: examLabel(x), year: x.year, count: x.items.length })), exam_listens: xlistens || [] });
     }
 
     // ---------- 학생 ----------
@@ -143,7 +159,15 @@ Deno.serve(async (req) => {
         srcOf[s.id] = g;
       });
       const all = new Set<string>(); lessons.forEach((l: any) => l.items.forEach((i: string) => all.add(i)));
+      const exams = await examsFor(db, me.class_code);
+      const xids = exams.map((x: any) => x.id);
+      const { data: xl } = xids.length ? await db.from("drill_exam_listens").select("set_id, plays, completed").eq("student_id", sid).in("set_id", xids) : { data: [] };
       return json({
+        exams: exams.map((x: any) => {
+          const r = (xl || []).find((y: any) => y.set_id === x.id);
+          return { id: x.id, label: examLabel(x), school: x.school, year: x.year, scope: x.scope || "", count: x.items.length,
+            status: r ? (r.completed ? "done" : "opened") : "new", plays: r?.plays || 0 };
+        }),
         name: me.name, class_name: me.class_name,
         lessons: lessons.map((l: any) => {
           const r = (listens || []).find((x: any) => x.lesson_id === l.id);
@@ -157,9 +181,16 @@ Deno.serve(async (req) => {
     if (body.op === "lesson") {
       const lessons = await lessonsFor(db, me.class_code);
       let ids: string[] = [];
-      if (body.set === "all") { const seen = new Set<string>(); [...lessons].reverse().forEach((l: any) => l.items.forEach((i: string) => { if (!seen.has(i)) { seen.add(i); ids.push(i); } })); }
+      let xinfo: Record<string, any> = {};
+      if (body.exam) {
+        const x = (await examsFor(db, me.class_code)).find((y: any) => y.id === String(body.exam));
+        if (!x) return json({ error: "NOT_FOUND" }, 404);
+        ids = x.items.map((it: any) => it.sentence_id);
+        x.items.forEach((it: any) => { xinfo[it.sentence_id] = { types: it.types || [], point: it.point || "", level: it.level || 0 }; });
+      } else if (body.set === "all") { const seen = new Set<string>(); [...lessons].reverse().forEach((l: any) => l.items.forEach((i: string) => { if (!seen.has(i)) { seen.add(i); ids.push(i); } })); }
       else if (body.set === "star") {
         const allowed = new Set<string>(); lessons.forEach((l: any) => l.items.forEach((i: string) => allowed.add(i)));
+        (await examsFor(db, me.class_code)).forEach((x: any) => x.items.forEach((it: any) => allowed.add(it.sentence_id)));
         const { data: st } = await db.from("drill_student_stars").select("sentence_id, created_at").eq("student_id", sid).order("created_at");
         ids = (st || []).map((x: any) => x.sentence_id).filter((i: string) => allowed.has(i));
       } else {
@@ -182,10 +213,24 @@ Deno.serve(async (req) => {
           id: r.id, chunks: (r.chunks || []).filter((c: any) => c.en), source: r.source_label || "",
           en: urls[r.audio_en] || null, ko: r.audio_ko ? urls[r.audio_ko] || null : null,
           times_en: r.times_en || [], times_ko: r.times_ko || [], star: starred.has(r.id),
+          ...(xinfo[r.id] ? { xtypes: xinfo[r.id].types, point: xinfo[r.id].point, level: xinfo[r.id].level } : {}),
         })),
         numbers: nums.map((p) => urls[p] || null),
         intro: intro ? urls[intro] || null : null,
       });
+    }
+
+    if (body.op === "log" && body.exam_id) {
+      const xid = String(body.exam_id);
+      if (!(await examsFor(db, me.class_code)).some((x: any) => x.id === xid)) return json({ ok: false });
+      const { data: cur } = await db.from("drill_exam_listens").select("*").eq("student_id", sid).eq("set_id", xid).maybeSingle();
+      const now = new Date().toISOString();
+      const row: any = cur ? { ...cur } : { student_id: sid, set_id: xid, class_code: me.class_code, opened_at: now, plays: 0, completed: false };
+      row.last_at = now;
+      if (body.event === "play") row.plays = (row.plays || 0) + 1;
+      if (body.event === "complete" && !row.completed) { row.completed = true; row.completed_at = now; }
+      await db.from("drill_exam_listens").upsert(row);
+      return json({ ok: true, completed: row.completed });
     }
 
     if (body.op === "log") {

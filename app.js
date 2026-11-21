@@ -69,7 +69,7 @@ async function fn(op, body = {}) {
 }
 
 /* ---------- 데이터 ---------- */
-const D = { cats: [], sents: [], lessons: [], staff: [], me: '', voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
+const D = { cats: [], sents: [], lessons: [], staff: [], me: '', schools: [], exams: [], xitems: [], voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
 const byId = (id) => D.sents.find((s) => s.id === id);
 function sortSents(a) {
   return a.sort((x, y) => {
@@ -82,12 +82,15 @@ function sortSents(a) {
   });
 }
 async function loadAll() {
-  const [c, s, l, v, st] = await Promise.all([
+  const [c, s, l, v, st, xs, xe, xi] = await Promise.all([
     sb.from('drill_categories').select('*'),
     sb.from('drill_sentences').select('*'),
     sb.from('drill_lessons').select('*').order('lesson_date', { ascending: false }).order('created_at', { ascending: false }),
     sb.from('drill_settings').select('value').eq('key', 'voices').maybeSingle(),
     sb.from('staff').select('email, name, role').order('created_at'),
+    sb.from('drill_schools').select('*').order('position'),
+    sb.from('drill_exam_sets').select('*'),
+    sb.from('drill_exam_items').select('*'),
   ]);
   for (const r of [c, s, l]) if (r.error) throw r.error;
   D.cats = c.data.sort((a, b) => natural(a.code, b.code));
@@ -95,6 +98,8 @@ async function loadAll() {
   D.lessons = l.data;
   if (v.data && v.data.value) D.voices = { ...D.voices, ...v.data.value };
   D.staff = (st && st.data) || [];
+  D.schools = (xs && xs.data) || []; D.exams = sortExams((xe && xe.data) || []); D.xitems = (xi && xi.data) || [];
+  if (L.exam && !D.exams.some((x) => x.id === L.exam)) { L.exam = null; store.set('editExam', null); }
 }
 /* 작성자(강사): 선생님 계정 이름으로 고르고, 이름 그대로 저장 */
 const staffName = (x) => (x.name || '').trim() || String(x.email || '').split('@')[0];
@@ -199,7 +204,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { lesson: store.get('editLesson', null), onlyLesson: false, cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 function renderCats() {
   const count = (code) => D.sents.filter((s) => s.category === code).length;
@@ -215,7 +220,7 @@ $('catList').onclick = (e) => {
   const ed = e.target.closest('[data-edcat]');
   if (ed) { e.stopPropagation(); return editCat(ed.dataset.edcat); }
   const li = e.target.closest('li'); if (!li) return;
-  L.cat = li.dataset.c; renderLib();
+  L.cat = li.dataset.c; L.xschool = ''; renderLib();
 };
 $('catAddBtn').onclick = () => { $('catAdd').hidden = !$('catAdd').hidden; if (!$('catAdd').hidden) $('catCode').focus(); };
 $('catCancel').onclick = () => { $('catAdd').hidden = true; };
@@ -278,10 +283,13 @@ function filtered() {
     if (L.tag && !(s.tags || []).includes(L.tag)) return false;
     if (L.src && srcGroup(s) !== L.src) return false;
     if (L.onlyLesson && editL() && !editL().items.includes(s.id)) return false;
+    if (L.onlyExam && editX() && !xItem(editX().id, s.id)) return false;
+    if (L.xschool && !xItemsOfSent(s.id).some((it) => (examById(it.set_id) || {}).school === L.xschool)) return false;
+    if (L.xtype) { const its = (L.onlyExam && editX()) ? [xItem(editX().id, s.id)].filter(Boolean) : xItemsOfSent(s.id); if (!its.some((it) => (it.types || []).includes(L.xtype))) return false; }
     if (L.author && (L.author === '__none' ? s.author : s.author !== L.author)) return false;
     if (L.audio) { const a = audioState(s); if (L.audio === 'ready' ? a !== 'ready' : a === 'ready') return false; }
     if (q) {
-      const hay = (s.text + ' ' + koLine(s) + ' ' + (s.memo || '') + ' ' + (s.tags || []).join(' ') + ' ' + srcLabel(s) + ' ' + (s.author || '')).toLowerCase();
+      const hay = (s.text + ' ' + koLine(s) + ' ' + (s.memo || '') + ' ' + (s.tags || []).join(' ') + ' ' + srcLabel(s) + ' ' + (s.author || '') + ' ' + xItemsOfSent(s.id).map((it) => (it.point || '') + ' ' + (it.types || []).join(' ')).join(' ')).toLowerCase();
       const hayNs = hay.replace(/\s/g, '');
       const qq = q.replace(/모고|학평/g, '모의고사');
       if (!hay.includes(qq) && !hayNs.includes(qq.replace(/\s/g, ''))) return false;
@@ -314,15 +322,18 @@ function sentHtml(s, no) {
   const hasKo = ch.some((c) => c.ko);
   const ko = hasKo ? ch.map((c) => esc(c.ko || '…')).join(sl) : '';
   const a = audioState(s);
-  const canMove = !L.onlyLesson && L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
+  const xv = L.onlyExam && editX(), it = xv ? xItem(xv.id, s.id) : null;
+  const xsets = xItemsOfSent(s.id).map((x) => examById(x.set_id)).filter(Boolean);
+  const canMove = !xv && !L.xschool && !L.onlyLesson && L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
   return `<div class="sent ${L.sel.has(s.id) ? 'sel' : ''}" data-id="${s.id}">
     <input type="checkbox" data-a="sel" ${L.sel.has(s.id) ? 'checked' : ''} aria-label="선택">
     <div class="no">${no}</div>
     <div class="body">
       <div class="en">${en}</div>
       ${ko ? `<div class="ko">${ko}</div>` : ''}
-      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${s.author ? `<span class="tag au" title="작성자">${esc(s.author)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}</div>
+      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${s.author ? `<span class="tag au" title="작성자">${esc(s.author)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}${xv ? '' : xsets.slice(0, 3).map((x) => `<span class="tag ex" title="${esc(examLabel(x))}">${esc(examShort(x))}</span>`).join('') + (xsets.length > 3 ? `<span class="tag ex">외 ${xsets.length - 3}</span>` : '')}</div>
       ${s.memo ? `<div class="memo">${esc(s.memo)}</div>` : ''}
+      ${it ? `<div class="xinfo">${(it.types || []).map((t) => `<span class="xt">${esc(t)}</span>`).join('')}${it.level ? `<span class="xl" title="출제 가능성">${'★'.repeat(it.level)}${'☆'.repeat(3 - it.level)}</span>` : ''}${it.point ? `<span class="xp">${esc(it.point)}</span>` : ''}${!(it.types || []).length && !it.level && !it.point ? '<span class="xnone">서술형 정보 없음 — ✍ 버튼으로 유형·포인트를 적어 두세요</span>' : ''}</div>` : ''}
     </div>
     <div class="act">
       <span class="au ${a}">${AU_LABEL[a]}</span>
@@ -331,21 +342,24 @@ function sentHtml(s, no) {
       <button class="icon star ${s.starred ? 'on' : ''}" data-a="star" title="별표">★</button>
       <button class="icon" data-a="edit" title="수정">✎</button>
       ${canMove ? '<button class="icon" data-a="up" title="위로">↑</button><button class="icon" data-a="down" title="아래로">↓</button>' : ''}
+      ${xv ? '<button class="icon xbtn" data-a="xinfo" title="서술형 정보 (유형·포인트·출제 가능성)">✍</button><button class="icon" data-a="xup" title="세트 안에서 위로">↑</button><button class="icon" data-a="xdown" title="세트 안에서 아래로">↓</button>' : ''}
       <button class="icon" data-a="del" title="삭제">✕</button>
     </div>
   </div>`;
 }
 function renderLib() {
-  renderCats(); renderTagFilter(); renderLessonBar();
-  const list = filtered();
+  renderCats(); renderExamSide(); renderTagFilter(); renderLessonBar(); renderExamBar(); renderXtypeFilter();
+  let list = filtered();
+  const xview = L.onlyExam && editX();
+  if (xview) { const pos = (sid) => (xItem(xview.id, sid) || {}).position || 0; list = [...list].sort((a, b) => pos(a.id) - pos(b.id)); }
   $('starFilter').setAttribute('aria-pressed', L.star ? 'true' : 'false');
   let h = '';
   if (!list.length) {
     h = D.sents.length
-      ? '<div class="empty">조건에 맞는 문장이 없어요.</div>'
+      ? (xview && !xItemsOf(xview.id).length ? '<div class="empty">이 세트에 아직 문장이 없어요.<br><b>+ 새 문장</b>으로 올리거나, 위 <b>이 세트 문장만 보기</b>를 끄고 있던 문장을 체크해 <b>이 세트에 넣기</b>를 누르세요.</div>' : '<div class="empty">조건에 맞는 문장이 없어요.</div>')
       : '<div class="empty">아직 문장이 없어요.<br><b>+ 새 문장</b>을 눌러 수업할 문장을 붙여넣으세요.<br><span class="small">카테고리(예: 1-1)를 먼저 만들어 두면 정리하기 좋아요.</span></div>';
   } else {
-    const groups = L.cat === '' && !L.q;
+    const groups = L.cat === '' && !L.q && !xview && !L.xschool;
     let last = Symbol('x'), n = 0;
     for (const s of list) {
       if (s.category !== last) {
@@ -426,10 +440,12 @@ $('sentList').onclick = async (e) => {
     const { error } = await sb.from('drill_sentences').delete().eq('id', id);
     if (error) return toast(errText(error), true);
     D.sents = D.sents.filter((x) => x.id !== id); L.sel.delete(id);
-    C.list = C.list.filter((x) => x !== id); saveClass();
+    C.list = C.list.filter((x) => x !== id); saveClass(); D.xitems = D.xitems.filter((x) => x.sentence_id !== id);
     renderLib(); renderPl(); renderStage(); return;
   }
   if (a === 'up' || a === 'down') return moveSent(s, a === 'up' ? -1 : 1);
+  if (a === 'xinfo') return openXInfo(editX(), s);
+  if (a === 'xup' || a === 'xdown') return moveInExam(editX(), s.id, a === 'xup' ? -1 : 1);
 };
 async function moveSent(s, dir) {
   const group = D.sents.filter((x) => x.category === s.category);
@@ -738,6 +754,7 @@ function openEditor(s) {
         if (error) throw error;
         D.sents.push(...data); data.forEach((r) => toTts.push(r.id));
         if (editL()) await addToLesson(data.map((r) => r.id), true);
+        if (editX()) await addToExam(data.map((r) => r.id), true);
       } else {
         const d = drafts[0], r = checked[0];
         const changed = JSON.stringify(r.chunks) !== JSON.stringify(chunksOf(s).map((c) => ({ en: c.en, ko: c.ko || '' })));
@@ -1035,6 +1052,211 @@ function openNewLesson(edit) {
   };
 }
 $('newLessonBtn').onclick = () => openNewLesson(null);
+
+/* ---------- 내신 세트: 학교·학년·연도·학기·시험 + 범위 메모, 문장마다 서술형 정보 ---------- */
+const XTYPES = ['배열 영작', '조건 영작', '어법 수정', '요약문 완성', '빈칸 서술'];
+const EXAM_NAME = { mid: '중간', final: '기말' };
+function examById(id) { return D.exams.find((x) => x.id === id) || null; }
+function editX() { return (L.exam && examById(L.exam)) || null; }
+function examLabel(x) { return `${x.school} ${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}`; }
+function examShort(x) { return `${x.school} ${x.grade}-${x.term} ${EXAM_NAME[x.exam]} '${String(x.year).slice(2)}`; }
+function sortExams(a) {
+  const sp = (n) => { const i = D.schools.findIndex((x) => x.name === n); return i < 0 ? 999 : i; };
+  return a.sort((p, q) => sp(p.school) - sp(q.school) || q.year - p.year || p.grade - q.grade || q.term - p.term || (q.exam === 'final') - (p.exam === 'final'));
+}
+function xItemsOf(setId) { return D.xitems.filter((x) => x.set_id === setId).sort((a, b) => a.position - b.position); }
+function xItem(setId, sid) { return D.xitems.find((x) => x.set_id === setId && x.sentence_id === sid) || null; }
+function xItemsOfSent(sid) { return D.xitems.filter((x) => x.sentence_id === sid); }
+function setEditExam(id, only) {
+  L.exam = id || null; store.set('editExam', L.exam);
+  L.onlyExam = !!(id && only); if (id) L.xschool = '';
+  renderLib();
+}
+function renderExamSide() {
+  const names = [...new Set([...D.schools.map((x) => x.name), ...D.exams.map((x) => x.school)])];
+  let h = '';
+  for (const n of names) {
+    const sets = D.exams.filter((x) => x.school === n);
+    const cnt = new Set(D.xitems.filter((it) => sets.some((x) => x.id === it.set_id)).map((it) => it.sentence_id)).size;
+    h += `<li class="xs ${L.xschool === n ? 'on' : ''} ${sets.length ? '' : 'empty'}" data-xs="${esc(n)}"><span class="ttl">${esc(n)}</span><span class="n">${cnt || ''}</span></li>`;
+    for (const x of sets) {
+      h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}"><span class="ttl">${x.year} · ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam]}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span></li>`;
+    }
+  }
+  $('examList').innerHTML = h || '<li class="empty">학교가 없어요</li>';
+}
+$('examList').onclick = (e) => {
+  const li = e.target.closest('li'); if (!li) return;
+  if (li.dataset.x) { L.cat = ''; return setEditExam(li.dataset.x, true); }
+  if (li.dataset.xs != null) {
+    const n = li.dataset.xs;
+    if (!D.exams.some((x) => x.school === n)) return toast(`${n}은(는) 아직 내신 세트가 없어요. 위 + 세트로 만들어 주세요.`);
+    L.xschool = L.xschool === n ? '' : n; L.cat = ''; if (L.xschool) { L.onlyExam = false; } renderLib();
+  }
+};
+function renderXtypeFilter() {
+  const has = D.xitems.some((x) => (x.types || []).length);
+  $('xtypeFilter').hidden = !has && !L.xtype;
+  $('xtypeFilter').innerHTML = '<option value="">모든 서술형 유형</option>' + XTYPES.map((t) => `<option ${t === L.xtype ? 'selected' : ''}>${t}</option>`).join('');
+}
+$('xtypeFilter').onchange = (e) => { L.xtype = e.target.value; renderLib(); };
+function renderExamBar() {
+  const x = editX(), bar = $('examBar');
+  $('selToExam').hidden = !x; $('selOutExam').hidden = !(x && L.onlyExam);
+  if (!x) { bar.hidden = true; return; }
+  const n = xItemsOf(x.id).length;
+  bar.hidden = false;
+  bar.innerHTML = `<div class="lb-t"><span class="lb-k">편집 중인 내신 세트</span><b>${esc(examLabel(x))}</b><span class="lb-s">${n}문장</span>
+      <span class="lb-p ${x.published ? 'on' : ''}">${x.published ? `ECHO 공개 중 · ${esc(x.class_name || x.class_code)}` : x.class_code ? `ECHO 공개 전 · ${esc(x.class_name || x.class_code)}` : ''}</span></div>
+    <div class="lb-a"><button class="btn sm ${L.onlyExam ? 'primary' : ''}" id="xbOnly" aria-pressed="${L.onlyExam}">이 세트 문장만 보기</button>
+      ${x.class_code ? `<button class="btn sm" id="xbPub">${x.published ? '공개 내리기' : '학생에게 공개'}</button>` : ''}
+      <button class="btn sm" id="xbOpen">수업 화면에서 열기</button><button class="btn ghost sm" id="xbEdit">세트 정보</button><button class="btn ghost sm" id="xbEnd">편집 끝내기</button></div>
+    ${x.scope ? `<p class="lb-scope"><span>범위</span>${esc(x.scope)}</p>` : ''}
+    <p class="lb-h">+ 새 문장으로 올리는 문장은 이 세트에 바로 들어가요. 있던 문장은 체크한 뒤 <b>이 세트에 넣기</b>. 세트 안 문장의 <b>✍</b>로 서술형 유형·핵심 포인트·출제 가능성을 적어요.</p>`;
+  $('xbOnly').onclick = () => { L.onlyExam = !L.onlyExam; renderLib(); };
+  $('xbEnd').onclick = () => setEditExam(null);
+  $('xbEdit').onclick = () => openExamSet(x);
+  $('xbOpen').onclick = () => {
+    const ids = xItemsOf(x.id).map((it) => it.sentence_id).filter((id) => byId(id));
+    if (!ids.length) return toast('아직 이 세트에 문장이 없어요.', true);
+    stop(); C.list = ids; C.idx = 0; C.lessonId = null; C.lessonTitle = examLabel(x); saveClass(); renderPl(); renderStage(); switchTab('class');
+  };
+  if ($('xbPub')) $('xbPub').onclick = async () => {
+    if (!x.published && !n) return toast('문장을 먼저 넣어 주세요.', true);
+    const r = await patchExam(x, { published: !x.published });
+    if (r) toast(r.published ? `${r.class_name || r.class_code} 학생들에게 ECHO 내신 서술형으로 공개했어요.` : '학생 공개를 내렸어요.');
+  };
+}
+async function patchExam(x, patch) {
+  const { data, error } = await sb.from('drill_exam_sets').update(patch).eq('id', x.id).select().single();
+  if (error) { toast(errText(error), true); return null; }
+  D.exams = sortExams(D.exams.map((y) => (y.id === data.id ? data : y))); renderLib();
+  return data;
+}
+async function addToExam(ids, quiet) {
+  const x = editX(); if (!x) return;
+  let pos = Math.max(0, ...xItemsOf(x.id).map((it) => it.position));
+  const rows = ids.filter((id) => !xItem(x.id, id)).map((id) => ({ set_id: x.id, sentence_id: id, position: ++pos }));
+  if (!rows.length) { if (!quiet) toast('이미 이 세트에 들어 있는 문장이에요.'); return; }
+  const { data, error } = await sb.from('drill_exam_items').insert(rows).select();
+  if (error) return toast(errText(error), true);
+  D.xitems.push(...data);
+  if (!quiet) toast(`이 세트에 ${rows.length}문장을 넣었어요. (모두 ${xItemsOf(x.id).length}문장)`);
+  renderLib();
+}
+async function moveInExam(x, sid, dir) {
+  const items = xItemsOf(x.id), i = items.findIndex((it) => it.sentence_id === sid), j = i + dir;
+  if (i < 0 || j < 0 || j >= items.length) return;
+  const a = items[i], b = items[j];
+  [a.position, b.position] = [b.position, a.position];
+  if (a.position === b.position) { items.forEach((it, k) => { it.position = k + 1; }); [a.position, b.position] = [j + 1, i + 1]; }
+  const ups = (a.position === b.position ? items : [a, b]).map((it) => sb.from('drill_exam_items').update({ position: it.position }).eq('set_id', it.set_id).eq('sentence_id', it.sentence_id));
+  const res = await Promise.all(ups);
+  const err = res.find((r) => r.error); if (err) toast(errText(err.error), true);
+  renderLib();
+}
+function openXInfo(x, s) {
+  const it = x && xItem(x.id, s.id); if (!it) return;
+  openModal(`
+    <div class="mh"><h3>서술형 정보</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <p class="small" style="margin:0 0 8px">${esc(examLabel(x))}</p>
+      <p style="margin:0 0 14px;line-height:1.5">${esc(s.text)}</p>
+      <div class="xl-h">출제 예상 유형 <span class="small">(여러 개 고를 수 있어요)</span></div>
+      <div class="xtypes">${XTYPES.map((t) => `<label class="chk"><input type="checkbox" value="${t}" ${(it.types || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}</div>
+      <label>핵심 포인트<input id="xiPoint" maxlength="120" value="${esc(it.point || '')}" placeholder="예: what → the thing which 바꿔 쓰기 / 관계부사 where 생략 불가"></label>
+      <div class="xl-h">출제 가능성</div>
+      <div class="xseg" id="xiLevel">${[0, 1, 2, 3].map((v) => `<button type="button" data-v="${v}" class="${(it.level || 0) === v ? 'on' : ''}">${v ? '★'.repeat(v) : '미정'}</button>`).join('')}</div>
+    </div>
+    <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="xiSave">저장</button></div>`, 'sm');
+  let level = it.level || 0;
+  $('xiLevel').onclick = (e) => { const b = e.target.closest('[data-v]'); if (!b) return; level = Number(b.dataset.v); $('xiLevel').querySelectorAll('button').forEach((y) => y.classList.toggle('on', y === b)); };
+  $('xiSave').onclick = async () => {
+    const types = [...document.querySelectorAll('.xtypes input:checked')].map((i) => i.value);
+    const patch = { types, point: $('xiPoint').value.trim() || null, level: level || null };
+    const { error } = await sb.from('drill_exam_items').update(patch).eq('set_id', x.id).eq('sentence_id', s.id);
+    if (error) return toast(errText(error), true);
+    Object.assign(it, patch); closeModal(); renderLib(); toast('서술형 정보를 저장했어요.');
+  };
+}
+function examDefaults() {
+  const d = new Date(Date.now() + 9 * 3600e3), m = d.getUTCMonth() + 1;
+  // 3~5월 1학기 중간, 6~7월 1학기 기말, 8~10월 2학기 중간, 11~2월 2학기 기말
+  const [term, exam] = m >= 3 && m <= 5 ? [1, 'mid'] : m >= 6 && m <= 7 ? [1, 'final'] : m >= 8 && m <= 10 ? [2, 'mid'] : [2, 'final'];
+  return { year: m <= 2 ? d.getUTCFullYear() - 1 : d.getUTCFullYear(), term, exam };
+}
+function openExamSet(edit) {
+  const df = edit || { ...examDefaults(), school: L.xschool || store.get('lastSchool', D.schools[0] ? D.schools[0].name : ''), grade: store.get('lastGrade', 2) };
+  openModal(`
+    <div class="mh"><h3>${edit ? '내신 세트 정보' : '새 내신 세트'}</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <div class="xgrid">
+        <label>학교<select id="xsSchool">${D.schools.map((x) => `<option ${x.name === df.school ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}<option value="__new">+ 학교 추가…</option></select></label>
+        <label id="xsNewWrap" hidden>새 학교 이름<input id="xsNew" maxlength="20" placeholder="예: 잠실고"></label>
+        <label>학년<select id="xsGrade">${[1, 2, 3].map((g) => `<option value="${g}" ${g === Number(df.grade) ? 'selected' : ''}>${g}학년</option>`).join('')}</select></label>
+        <label>연도<input id="xsYear" type="number" min="2000" max="2100" value="${df.year}"></label>
+        <label>학기<select id="xsTerm"><option value="1" ${df.term === 1 ? 'selected' : ''}>1학기</option><option value="2" ${df.term === 2 ? 'selected' : ''}>2학기</option></select></label>
+        <label>시험<select id="xsExam"><option value="mid" ${df.exam === 'mid' ? 'selected' : ''}>중간고사</option><option value="final" ${df.exam === 'final' ? 'selected' : ''}>기말고사</option></select></label>
+      </div>
+      <label>시험 범위 메모<textarea id="xsScope" rows="3" maxlength="500" placeholder="예: 교과서 3~4과 / 2026 고2 9월 모의고사 / 수능특강 영어 1~5강">${esc(edit ? edit.scope || '' : '')}</textarea></label>
+      <label>ECHO 공개할 반 <span class="small">— 고르면 그 반 학생 화면의 '내신 서술형' 칸에 공개할 수 있어요</span><select id="xsClass"><option value="">반 목록 불러오는 중…</option></select></label>
+    </div>
+    <div class="mf">${edit ? '<button class="btn ghost" id="xsDel" style="color:var(--red,#c0392b)">세트 삭제</button>' : ''}<span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="xsGo">${edit ? '저장' : '만들고 문장 넣기'}</button></div>`, 'sm');
+  $('xsSchool').onchange = () => { $('xsNewWrap').hidden = $('xsSchool').value !== '__new'; if (!$('xsNewWrap').hidden) $('xsNew').focus(); };
+  loadHubClasses().then((list) => {
+    const sel = $('xsClass'); if (!sel) return;
+    const cur = edit ? (edit.class_code || '') : '';
+    sel.innerHTML = '<option value="">공개 안 함 (선생님만)</option>' + list.map((c) => `<option value="${esc(c.code)}" ${c.code === cur ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
+  });
+  if (edit) $('xsDel').onclick = async () => {
+    if (!await confirmBox('내신 세트 삭제', `"${examLabel(edit)}" 세트를 지울까요? 문장 자체는 남고, 이 세트에 적은 서술형 정보와 학생 공개만 사라져요.`, '삭제', true)) return;
+    const { error } = await sb.from('drill_exam_sets').delete().eq('id', edit.id);
+    if (error) return toast(errText(error), true);
+    D.exams = D.exams.filter((y) => y.id !== edit.id); D.xitems = D.xitems.filter((y) => y.set_id !== edit.id);
+    if (L.exam === edit.id) setEditExam(null); else renderLib();
+    toast('세트를 지웠어요.');
+  };
+  $('xsGo').onclick = async () => {
+    let school = $('xsSchool').value;
+    if (school === '__new') {
+      school = $('xsNew').value.trim();
+      if (!school) return toast('새 학교 이름을 적어 주세요.', true);
+      if (!D.schools.some((x) => x.name === school)) {
+        const { data, error } = await sb.from('drill_schools').insert({ name: school, position: D.schools.length + 1 }).select().single();
+        if (error) return toast(errText(error), true);
+        D.schools.push(data);
+      }
+    }
+    const code = $('xsClass').value, cls = (HUB_CLASSES || []).find((c) => c.code === code);
+    const row = { school, grade: Number($('xsGrade').value), year: Number($('xsYear').value), term: Number($('xsTerm').value), exam: $('xsExam').value,
+      scope: $('xsScope').value.trim() || null, class_code: code || null, class_name: cls ? cls.name : null };
+    if (!row.year || row.year < 2000 || row.year > 2100) return toast('연도를 확인해 주세요.', true);
+    const same = D.exams.find((y) => y.school === row.school && y.grade === row.grade && y.year === row.year && y.term === row.term && y.exam === row.exam && (!edit || y.id !== edit.id));
+    if (same) { closeModal(); setEditExam(same.id, true); return toast('같은 학교·시험 세트가 이미 있어서 그 세트를 열었어요.'); }
+    store.set('lastSchool', school); store.set('lastGrade', row.grade);
+    if (edit) {
+      if (!code) row.published = false;
+      const r = await patchExam(edit, row); if (r) { closeModal(); toast('세트 정보를 고쳤어요.'); }
+      return;
+    }
+    const { data, error } = await sb.from('drill_exam_sets').insert(row).select().single();
+    if (error) return toast(errText(error), true);
+    D.exams = sortExams([...D.exams, data]);
+    closeModal(); setEditExam(data.id, false);
+    toast('세트를 만들었어요. 있던 문장은 체크해서 넣고, 새 문장은 + 새 문장으로 올리면 바로 들어가요.');
+  };
+}
+$('examAddBtn').onclick = () => openExamSet(null);
+$('selToExam').onclick = () => { addToExam(D.sents.filter((s) => L.sel.has(s.id)).map((s) => s.id)); L.sel.clear(); };
+$('selOutExam').onclick = async () => {
+  const x = editX(); if (!x) return;
+  const ids = [...L.sel].filter((id) => xItem(x.id, id));
+  if (!ids.length) return;
+  const { error } = await sb.from('drill_exam_items').delete().eq('set_id', x.id).in('sentence_id', ids);
+  if (error) return toast(errText(error), true);
+  D.xitems = D.xitems.filter((it) => !(it.set_id === x.id && ids.includes(it.sentence_id)));
+  L.sel.clear(); renderLib(); toast('이 세트에서 뺐어요. 문장 자체는 그대로 있어요.');
+};
 $('selToLesson').onclick = () => { addToLesson(D.sents.filter((s) => L.sel.has(s.id)).map((s) => s.id)); L.sel.clear(); };
 $('selOutLesson').onclick = async () => {
   const l = editL(); if (!l) return;
