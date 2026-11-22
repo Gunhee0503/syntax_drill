@@ -204,7 +204,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { lesson: store.get('editLesson', null), onlyLesson: false, exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, lq: '', exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 function renderCats() {
   const count = (code) => D.sents.filter((s) => s.category === code).length;
@@ -348,7 +348,7 @@ function sentHtml(s, no) {
   </div>`;
 }
 function renderLib() {
-  renderCats(); renderExamSide(); renderTagFilter(); renderLessonBar(); renderExamBar(); renderXtypeFilter();
+  renderCats(); renderLessonSide(); renderExamSide(); renderTagFilter(); renderLessonBar(); renderExamBar(); renderXtypeFilter();
   let list = filtered();
   const xview = L.onlyExam && editX();
   if (xview) { const pos = (sid) => (xItem(xview.id, sid) || {}).position || 0; list = [...list].sort((a, b) => pos(a.id) - pos(b.id)); }
@@ -1052,6 +1052,25 @@ function openNewLesson(edit) {
   };
 }
 $('newLessonBtn').onclick = () => openNewLesson(null);
+/* 왼쪽 '수업' 목록: 검색해서 누르면 그 수업을 편집 중으로 다시 열기 */
+function renderLessonSide() {
+  const q = L.lq.trim().toLowerCase().replace(/\s+/g, ' ');
+  const hay = (l) => { const d = new Date(l.lesson_date + 'T00:00:00'); return `${l.lesson_date} ${d.getMonth() + 1}/${d.getDate()} ${d.getMonth() + 1}월 ${d.getDate()}일 ${l.class_name || ''} ${l.class_code || ''} ${l.title || ''}`.toLowerCase(); };
+  const all = [...D.lessons].sort((a, b) => String(b.lesson_date).localeCompare(String(a.lesson_date)));
+  const list = q ? all.filter((l) => q.split(' ').every((w) => hay(l).includes(w))) : all;
+  const shown = q ? list : list.slice(0, 12);
+  $('lessonSide').innerHTML = shown.map((l) => {
+    const d = new Date(l.lesson_date + 'T00:00:00');
+    return `<li class="${L.lesson === l.id ? 'on' : ''}" data-l="${l.id}" title="${esc(l.title)}"><span class="ttl"><b>${d.getMonth() + 1}/${d.getDate()}</b> ${esc(l.class_name || '반 없음')}<small>${esc(l.title)}</small></span><span class="n">${(l.items || []).length}${l.published ? '<i class="pub" title="ECHO 공개 중">●</i>' : ''}</span></li>`;
+  }).join('') + (!q && list.length > shown.length ? `<li class="more">최근 ${shown.length}개 · 검색하면 전체 ${list.length}개에서 찾아요</li>` : '') + (!list.length ? `<li class="empty">${q ? '찾는 수업이 없어요' : '아직 저장한 수업이 없어요'}</li>` : '');
+}
+$('lessonQ').oninput = (e) => { L.lq = e.target.value; renderLessonSide(); };
+$('lessonSide').onclick = (e) => {
+  const li = e.target.closest('li[data-l]'); if (!li) return;
+  if (L.lesson === li.dataset.l) { L.onlyLesson = !L.onlyLesson; return renderLib(); }
+  L.onlyLesson = true; L.cat = ''; L.xschool = ''; setEditLesson(li.dataset.l);
+};
+$('lessonAddBtn').onclick = () => openNewLesson(null);
 
 /* ---------- 내신 세트: 학교·학년·연도·학기·시험 + 범위 메모, 문장마다 서술형 정보 ---------- */
 const XTYPES = ['배열 영작', '조건 영작', '어법 수정', '요약문 완성', '빈칸 서술'];
