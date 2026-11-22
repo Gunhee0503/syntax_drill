@@ -1081,11 +1081,11 @@ const XTYPES = ['배열 영작', '조건 영작', '어법 수정', '요약문 �
 const EXAM_NAME = { mid: '중간', final: '기말' };
 function examById(id) { return D.exams.find((x) => x.id === id) || null; }
 function editX() { return (L.exam && examById(L.exam)) || null; }
-function examLabel(x) { return `${x.school} ${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}`; }
-function examShort(x) { return `${x.school} ${x.grade}-${x.term} ${EXAM_NAME[x.exam]} '${String(x.year).slice(2)}`; }
+function examLabel(x) { return `${x.school} ${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}${x.name ? ' · ' + x.name : ''}`; }
+function examShort(x) { return `${x.school} ${x.grade}-${x.term} ${EXAM_NAME[x.exam]} '${String(x.year).slice(2)}${x.name ? ' · ' + x.name : ''}`; }
 function sortExams(a) {
   const sp = (n) => { const i = D.schools.findIndex((x) => x.name === n); return i < 0 ? 999 : i; };
-  return a.sort((p, q) => sp(p.school) - sp(q.school) || q.year - p.year || p.grade - q.grade || q.term - p.term || (q.exam === 'final') - (p.exam === 'final'));
+  return a.sort((p, q) => sp(p.school) - sp(q.school) || q.year - p.year || p.grade - q.grade || q.term - p.term || (q.exam === 'final') - (p.exam === 'final') || String(p.name || '').localeCompare(String(q.name || ''), 'ko', { numeric: true }));
 }
 function xItemsOf(setId) { return D.xitems.filter((x) => x.set_id === setId).sort((a, b) => a.position - b.position); }
 function xItem(setId, sid) { return D.xitems.find((x) => x.set_id === setId && x.sentence_id === sid) || null; }
@@ -1107,7 +1107,7 @@ function renderExamSide() {
     if (!open) continue;
     if (sets.length > 1 || cnt) h += `<li class="xall ${L.xschool === n ? 'on' : ''}" data-xall="${esc(n)}"><span class="ttl">이 학교 문장 모두 보기</span><span class="n">${cnt || ''}</span></li>`;
     for (const x of sets) {
-      h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}"><span class="ttl">${x.year} · ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam]}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span></li>`;
+      h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}"><span class="ttl"><span>${x.year} · ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam]}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span>${x.name ? `<small class="xname">${esc(x.name)}</small>` : ''}</span><span class="n">${xItemsOf(x.id).length}</span></li>`;
     }
   }
   $('examList').innerHTML = h || '<li class="empty">학교가 없어요</li>';
@@ -1240,6 +1240,7 @@ function openExamSet(edit) {
         <label>학기<select id="xsTerm"><option value="1" ${df.term === 1 ? 'selected' : ''}>1학기</option><option value="2" ${df.term === 2 ? 'selected' : ''}>2학기</option></select></label>
         <label>시험<select id="xsExam"><option value="mid" ${df.exam === 'mid' ? 'selected' : ''}>중간고사</option><option value="final" ${df.exam === 'final' ? 'selected' : ''}>기말고사</option></select></label>
       </div>
+      <label>세트 이름 <span class="small">— 같은 시험 안에서 범위별로 나눌 때 (예: 9월 모의고사 / 교과서 3~4과 / 수특 1~5강)</span><input id="xsName" maxlength="40" value="${esc(edit ? edit.name || '' : '')}" placeholder="비워 두면 시험 전체 세트"></label>
       <label>시험 범위 메모<textarea id="xsScope" rows="3" maxlength="500" placeholder="예: 교과서 3~4과 / 2026 고2 9월 모의고사 / 수능특강 영어 1~5강">${esc(edit ? edit.scope || '' : '')}</textarea></label>
       <label>ECHO 공개할 반 <span class="small">— 고르면 그 반 학생 화면의 '내신 서술형' 칸에 공개할 수 있어요</span><select id="xsClass"><option value="">반 목록 불러오는 중…</option></select></label>
     </div>
@@ -1271,10 +1272,14 @@ function openExamSet(edit) {
     }
     const code = $('xsClass').value, cls = (HUB_CLASSES || []).find((c) => c.code === code);
     const row = { school, grade: Number($('xsGrade').value), year: Number($('xsYear').value), term: Number($('xsTerm').value), exam: $('xsExam').value,
-      scope: $('xsScope').value.trim() || null, class_code: code || null, class_name: cls ? cls.name : null };
+      name: $('xsName').value.trim().replace(/\s+/g, ' ') || null, scope: $('xsScope').value.trim() || null, class_code: code || null, class_name: cls ? cls.name : null };
     if (!row.year || row.year < 2000 || row.year > 2100) return toast('연도를 확인해 주세요.', true);
-    const same = D.exams.find((y) => y.school === row.school && y.grade === row.grade && y.year === row.year && y.term === row.term && y.exam === row.exam && (!edit || y.id !== edit.id));
-    if (same) { closeModal(); setEditExam(same.id, true); return toast('같은 학교·시험 세트가 이미 있어서 그 세트를 열었어요.'); }
+    // 같은 시험이라도 세트 이름(범위)이 다르면 따로 만듦. 이름까지 같을 때만 있던 세트를 엶
+    const same = D.exams.find((y) => y.school === row.school && y.grade === row.grade && y.year === row.year && y.term === row.term && y.exam === row.exam && (y.name || '') === (row.name || '') && (!edit || y.id !== edit.id));
+    if (same) {
+      if (edit) return toast('같은 시험·같은 이름의 세트가 이미 있어요. 세트 이름을 다르게 적어 주세요.', true);
+      closeModal(); setEditExam(same.id, true); return toast(row.name ? `"${row.name}" 세트가 이미 있어서 그 세트를 열었어요.` : '같은 시험 세트가 이미 있어서 그 세트를 열었어요. 범위별로 나누려면 세트 이름을 적어 주세요.');
+    }
     store.set('lastSchool', school); store.set('lastGrade', row.grade);
     if (edit) {
       if (!code) row.published = false;

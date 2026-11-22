@@ -340,3 +340,5 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .examlist li.xs .n{font-size:11px}
 .examlist li.xall{padding-left:22px;font-size:12.5px}
 .examlist li.xall .ttl{color:#2f5f93;font-weight:600}
+.examlist li.xset .ttl{display:flex;flex-direction:column}
+.examlist .xname{font-size:12px;color:#2f5f93;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

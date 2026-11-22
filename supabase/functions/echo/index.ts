@@ -127,10 +127,11 @@ async function sayPaths(db: any, texts: string[], fallbackVoice: string) {
 }
 
 const EXAM_NAME: Record<string, string> = { mid: "중간", final: "기말" };
-const examLabel = (x: any) => `${x.school} ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam] || ""}`;
+const examBase = (x: any) => `${x.school} ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam] || ""}`;
+const examLabel = (x: any) => examBase(x) + (x.name ? ` · ${x.name}` : "");
 // 내신 세트: 우리 반에 공개된 것 + 세트별 문장 순서
 async function examsFor(db: any, classCode: string) {
-  const { data: sets } = await db.from("drill_exam_sets").select("id, school, grade, year, term, exam, scope, class_code")
+  const { data: sets } = await db.from("drill_exam_sets").select("id, school, grade, year, term, exam, name, scope, class_code")
     .eq("class_code", classCode).eq("published", true).order("year", { ascending: false }).order("updated_at", { ascending: false });
   const ids = (sets || []).map((x: any) => x.id);
   const { data: items } = ids.length ? await db.from("drill_exam_items").select("set_id, sentence_id, position, types, point, level, say_src").in("set_id", ids).order("position") : { data: [] };
@@ -213,7 +214,7 @@ Deno.serve(async (req) => {
       return json({
         exams: exams.map((x: any) => {
           const r = (xl || []).find((y: any) => y.set_id === x.id);
-          return { id: x.id, label: examLabel(x), school: x.school, year: x.year, scope: x.scope || "", count: x.items.length,
+          return { id: x.id, label: examLabel(x), base: examBase(x), name: x.name || "", school: x.school, year: x.year, scope: x.scope || "", count: x.items.length,
             status: r ? (r.completed ? "done" : "opened") : "new", plays: r?.plays || 0 };
         }),
         name: me.name, class_name: me.class_name,
