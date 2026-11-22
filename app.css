@@ -333,3 +333,10 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .lessonside li.on .ttl small{color:var(--ink2)}
 .lessonside .pub{font-style:normal;color:#2f8c7a;font-size:9px;margin-left:3px;vertical-align:2px}
 .lessonside li.more,.lessonside li.empty{cursor:default;font-size:12px;color:var(--ink3);justify-content:flex-start}
+
+.lessonside li.more{cursor:pointer;color:var(--ink2);font-weight:600}
+.lessonside li.more:hover{background:rgba(0,0,0,.04)}
+.examlist li.xs .car{width:12px;font-size:11px;color:var(--ink3);flex-shrink:0}
+.examlist li.xs .n{font-size:11px}
+.examlist li.xall{padding-left:22px;font-size:12.5px}
+.examlist li.xall .ttl{color:#2f5f93;font-weight:600}

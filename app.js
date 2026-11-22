@@ -204,7 +204,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { lesson: store.get('editLesson', null), onlyLesson: false, lq: '', exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 function renderCats() {
   const count = (code) => D.sents.filter((s) => s.category === code).length;
@@ -1058,14 +1058,18 @@ function renderLessonSide() {
   const hay = (l) => { const d = new Date(l.lesson_date + 'T00:00:00'); return `${l.lesson_date} ${d.getMonth() + 1}/${d.getDate()} ${d.getMonth() + 1}월 ${d.getDate()}일 ${l.class_name || ''} ${l.class_code || ''} ${l.title || ''}`.toLowerCase(); };
   const all = [...D.lessons].sort((a, b) => String(b.lesson_date).localeCompare(String(a.lesson_date)));
   const list = q ? all.filter((l) => q.split(' ').every((w) => hay(l).includes(w))) : all;
-  const shown = q ? list : list.slice(0, 12);
+  const LIMIT = 5;
+  let shown = q || L.lmore ? list : list.slice(0, LIMIT);
+  const cur = !q && !L.lmore && L.lesson && list.find((l) => l.id === L.lesson);
+  if (cur && !shown.includes(cur)) shown = [...shown, cur];   // 편집 중인 수업은 접혀 있어도 보이게
   $('lessonSide').innerHTML = shown.map((l) => {
     const d = new Date(l.lesson_date + 'T00:00:00');
     return `<li class="${L.lesson === l.id ? 'on' : ''}" data-l="${l.id}" title="${esc(l.title)}"><span class="ttl"><b>${d.getMonth() + 1}/${d.getDate()}</b> ${esc(l.class_name || '반 없음')}<small>${esc(l.title)}</small></span><span class="n">${(l.items || []).length}${l.published ? '<i class="pub" title="ECHO 공개 중">●</i>' : ''}</span></li>`;
-  }).join('') + (!q && list.length > shown.length ? `<li class="more">최근 ${shown.length}개 · 검색하면 전체 ${list.length}개에서 찾아요</li>` : '') + (!list.length ? `<li class="empty">${q ? '찾는 수업이 없어요' : '아직 저장한 수업이 없어요'}</li>` : '');
+  }).join('') + (!q && list.length > LIMIT ? `<li class="more" data-more="1">${L.lmore ? '▴ 지난 수업 접기' : `▾ 지난 수업 더보기 (${list.length - LIMIT}개)`}</li>` : '') + (!list.length ? `<li class="empty">${q ? '찾는 수업이 없어요' : '아직 저장한 수업이 없어요'}</li>` : '');
 }
 $('lessonQ').oninput = (e) => { L.lq = e.target.value; renderLessonSide(); };
 $('lessonSide').onclick = (e) => {
+  if (e.target.closest('li[data-more]')) { L.lmore = !L.lmore; return renderLessonSide(); }
   const li = e.target.closest('li[data-l]'); if (!li) return;
   if (L.lesson === li.dataset.l) { L.onlyLesson = !L.onlyLesson; return renderLib(); }
   L.onlyLesson = true; L.cat = ''; L.xschool = ''; setEditLesson(li.dataset.l);
@@ -1088,6 +1092,7 @@ function xItem(setId, sid) { return D.xitems.find((x) => x.set_id === setId && x
 function xItemsOfSent(sid) { return D.xitems.filter((x) => x.sentence_id === sid); }
 function setEditExam(id, only) {
   L.exam = id || null; store.set('editExam', L.exam);
+  if (id && examById(id)) { L.xopen.add(examById(id).school); store.set('xopen', [...L.xopen]); }
   L.onlyExam = !!(id && only); if (id) L.xschool = '';
   renderLib();
 }
@@ -1097,7 +1102,10 @@ function renderExamSide() {
   for (const n of names) {
     const sets = D.exams.filter((x) => x.school === n);
     const cnt = new Set(D.xitems.filter((it) => sets.some((x) => x.id === it.set_id)).map((it) => it.sentence_id)).size;
-    h += `<li class="xs ${L.xschool === n ? 'on' : ''} ${sets.length ? '' : 'empty'}" data-xs="${esc(n)}"><span class="ttl">${esc(n)}</span><span class="n">${cnt || ''}</span></li>`;
+    const open = L.xopen.has(n) || (editX() && editX().school === n);
+    h += `<li class="xs ${sets.length ? '' : 'empty'} ${open ? 'open' : ''}" data-xs="${esc(n)}" aria-expanded="${open}"><span class="car">${sets.length ? (open ? '▾' : '▸') : ''}</span><span class="ttl">${esc(n)}</span><span class="n">${sets.length ? sets.length + '세트' : ''}</span></li>`;
+    if (!open) continue;
+    if (sets.length > 1 || cnt) h += `<li class="xall ${L.xschool === n ? 'on' : ''}" data-xall="${esc(n)}"><span class="ttl">이 학교 문장 모두 보기</span><span class="n">${cnt || ''}</span></li>`;
     for (const x of sets) {
       h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}"><span class="ttl">${x.year} · ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam]}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span></li>`;
     }
@@ -1107,10 +1115,20 @@ function renderExamSide() {
 $('examList').onclick = (e) => {
   const li = e.target.closest('li'); if (!li) return;
   if (li.dataset.x) { L.cat = ''; return setEditExam(li.dataset.x, true); }
+  if (li.dataset.xall != null) {
+    const n = li.dataset.xall;
+    L.xschool = L.xschool === n ? '' : n; L.cat = ''; if (L.xschool) { L.onlyExam = false; } return renderLib();
+  }
   if (li.dataset.xs != null) {
     const n = li.dataset.xs;
     if (!D.exams.some((x) => x.school === n)) return toast(`${n}은(는) 아직 내신 세트가 없어요. 위 + 세트로 만들어 주세요.`);
-    L.xschool = L.xschool === n ? '' : n; L.cat = ''; if (L.xschool) { L.onlyExam = false; } renderLib();
+    const editing = editX() && editX().school === n;
+    if (L.xopen.has(n) || editing) {   // 접기 — 편집 중인 세트의 학교를 접으면 편집도 끝냄
+      L.xopen.delete(n); if (L.xschool === n) L.xschool = '';
+      store.set('xopen', [...L.xopen]);
+      return editing ? setEditExam(null) : renderLib();
+    }
+    L.xopen.add(n); store.set('xopen', [...L.xopen]); renderLib();
   }
 };
 function renderXtypeFilter() {
