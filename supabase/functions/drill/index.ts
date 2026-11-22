@@ -46,9 +46,9 @@ async function ttsWithTimes(voice: string, text: string, lang?: string) {
   return { bytes: bin, al: out.alignment || out.normalized_alignment };
 }
 
-async function ttsPlain(voice: string, text: string) {
+async function ttsPlain(voice: string, text: string, settings?: Record<string, unknown>) {
   const r = await el(`/v1/text-to-speech/${voice}?output_format=mp3_44100_128`, {
-    text, model_id: TTS_MODEL, voice_settings: { stability: 0.6, similarity_boost: 0.75 },
+    text, model_id: TTS_MODEL, voice_settings: settings || { stability: 0.6, similarity_boost: 0.75 },
   });
   if (!r.ok) throw new Error(`ELEVENLABS_${r.status}: ${(await r.text()).slice(0, 300)}`);
   return new Uint8Array(await r.arrayBuffer());
@@ -188,6 +188,36 @@ async function handleNumbers(admin: any, body: any) {
   return json({ voice, paths, generated: need.length });
 }
 
+// ---------- 내신 세트 안내 음성: "1번. 2026년 고이 9월 모의고사 29번 지문." ----------
+// 같은 문장이면 한 번만 만들어 저장(say/목소리/해시.mp3). ECHO 함수도 같은 규칙으로 찾음
+const SAY_VOICE = "6ZPN1uE51vVTtd32NM3q";   // 30대 한국 남성(R) — 직독직해 시작 안내와 같은 목소리
+async function handleSay(admin: any, body: any) {
+  const texts = [...new Set((Array.isArray(body.texts) ? body.texts : []).map((t: any) => String(t || "").trim().slice(0, 120)).filter(Boolean))].slice(0, 120) as string[];
+  const v = await voices(admin);
+  const out: Record<string, string> = {};
+  for (const voice of [SAY_VOICE, v.ko]) {
+    const vv = String(voice).replace(/[^A-Za-z0-9]/g, ""), dir = `say/${vv}`;
+    const { data: list } = await admin.storage.from(BUCKET).list(dir, { limit: 1000 });
+    const have = new Set((list || []).map((f: any) => f.name));
+    const todo: { t: string; p: string }[] = [];
+    for (const t of texts) { if (out[t]) continue; const p = `${dir}/${await hash("say|" + t)}.mp3`; if (have.has(p.split("/").pop())) out[t] = p; else todo.push({ t, p }); }
+    let i = 0, failed = false;
+    const worker = async () => {
+      while (i < todo.length) {
+        const x = todo[i++];
+        try {
+          const bytes = await ttsPlain(vv, x.t, { stability: 0.4, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true });
+          const up = await admin.storage.from(BUCKET).upload(x.p, bytes, { contentType: "audio/mpeg", upsert: true });
+          if (!up.error) out[x.t] = x.p;
+        } catch (e) { failed = true; console.error("say", vv, (e as Error).message); }
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    if (!failed) break;   // 고른 목소리를 못 쓰면 기본 우리말 목소리로 다시
+  }
+  return json({ paths: out });
+}
+
 // ---------- Claude: 의미구 초안 ----------
 const AI_SYSTEM = `너는 PIF영어학원 고등부 '구문 수업'의 자료 조교다. 선생님이 수업할 영어 문장을 주면, 직독직해용 의미구(chunk)로 끊고 각 의미구의 우리말 뜻을 쓴다.
 이 자료는 수업에서 '우리말 의미구를 들려주면 학생이 그 부분을 영어로 말해 보는' 드릴과 '영어 의미구를 듣고 바로 우리말로 이해하는' 직독직해에 쓰인다.
@@ -284,6 +314,7 @@ Deno.serve(async (req) => {
   try {
     if (body.op === "tts") return await handleTts(admin, body);
     if (body.op === "numbers") return await handleNumbers(admin, body);
+    if (body.op === "say") return await handleSay(admin, body);
     if (body.op === "ai") return await handleAi(body);
     if (body.op === "translate") {
       const en = (Array.isArray(body.chunks) ? body.chunks : []).map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 20);

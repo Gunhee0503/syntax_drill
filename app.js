@@ -801,17 +801,17 @@ function confirmBox(title, text, ok, danger) {
  * ========================================================= */
 const O = Object.assign({ mode: 'full', speed: 1, rep: 1, think: 1, shadow: 0, enView: 'show', koView: 'show', auto: false }, store.get('opts', {}));
 if (!['full', 'chunk', 'drill'].includes(O.mode)) O.mode = 'full';
-const C = { list: [], idx: 0, lessonId: null, lessonTitle: '' };
+const C = { list: [], idx: 0, lessonId: null, lessonTitle: '', examId: null };
 const V = { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 };
 const resetV = () => Object.assign(V, { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 });
 const curSent = () => byId(C.list[C.idx]);
 const saveOpts = () => store.set('opts', O);
-function saveClass() { store.set('class', { list: C.list, idx: C.idx, lessonId: C.lessonId, lessonTitle: C.lessonTitle }); }
+function saveClass() { store.set('class', { list: C.list, idx: C.idx, lessonId: C.lessonId, lessonTitle: C.lessonTitle, examId: C.examId }); }
 function restoreClass() {
   const c = store.get('class', null);
   if (c && Array.isArray(c.list)) {
     C.list = c.list.filter((id) => byId(id)); C.idx = Math.min(c.idx || 0, Math.max(0, C.list.length - 1));
-    C.lessonId = c.lessonId || null; C.lessonTitle = c.lessonTitle || '';
+    C.lessonId = c.lessonId || null; C.lessonTitle = c.lessonTitle || ''; C.examId = c.examId || null;
   }
   syncControls();
 }
@@ -820,7 +820,7 @@ function addToPlaylist(ids, how) {
   if (!ids.length) return toast('넣을 문장이 없어요.', true);
   const go = (replace) => {
     stop();
-    if (replace) { C.list = [...ids]; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; }
+    if (replace) { C.list = [...ids]; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; C.examId = null; }
     else { const set = new Set(C.list); ids.forEach((id) => { if (!set.has(id)) C.list.push(id); }); }
     saveClass(); L.sel.clear(); renderLib(); renderPl(); renderStage(); switchTab('class');
     toast(`수업 목록 ${C.list.length}문장`);
@@ -864,7 +864,7 @@ $('plList').onclick = (e) => {
 $('plClear').onclick = async () => {
   if (!C.list.length) return;
   if (!await confirmBox('수업 목록 비우기', '수업 목록을 비울까요? 문장과 저장된 수업 기록은 그대로 남아요.', '비우기')) return;
-  stop(); C.list = []; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; saveClass(); renderPl(); renderStage();
+  stop(); C.list = []; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; C.examId = null; saveClass(); renderPl(); renderStage();
 };
 $('plLoad').onclick = () => openLoader();
 function openLoader() {
@@ -909,7 +909,7 @@ function openLoader() {
     if (!ids.length) return toast('문장이 없어요.', true);
     $('mbox').onclick = null; closeModal();
     addToPlaylist(ids, append ? 'add' : 'replace');
-    if (lesson && !append) { C.lessonId = lesson.id; C.lessonTitle = `${lesson.lesson_date} ${lesson.title}`; saveClass(); renderPl(); }
+    if (lesson && !append) { C.examId = null; C.lessonId = lesson.id; C.lessonTitle = `${lesson.lesson_date} ${lesson.title}`; saveClass(); renderPl(); }
   };
 }
 // 허브 반 목록 (ECHO 공개용) — echo 함수가 허브에서 읽어 옴
@@ -1005,7 +1005,7 @@ function renderLessonBar() {
   $('lbEdit').onclick = () => openNewLesson(l);
   $('lbOpen').onclick = () => {
     if (!n) return toast('아직 이 수업에 문장이 없어요.', true);
-    stop(); C.list = [...l.items]; C.idx = 0; C.lessonId = l.id; C.lessonTitle = `${l.lesson_date} ${l.title}`; saveClass(); renderPl(); renderStage(); switchTab('class');
+    stop(); C.list = [...l.items]; C.idx = 0; C.examId = null; C.lessonId = l.id; C.lessonTitle = `${l.lesson_date} ${l.title}`; saveClass(); renderPl(); renderStage(); switchTab('class');
   };
   if ($('lbPub')) $('lbPub').onclick = async () => {
     if (!l.published && !n) return toast('문장을 먼저 넣어 주세요.', true);
@@ -1119,7 +1119,7 @@ function renderExamBar() {
   $('xbOpen').onclick = () => {
     const ids = xItemsOf(x.id).map((it) => it.sentence_id).filter((id) => byId(id));
     if (!ids.length) return toast('아직 이 세트에 문장이 없어요.', true);
-    stop(); C.list = ids; C.idx = 0; C.lessonId = null; C.lessonTitle = examLabel(x); saveClass(); renderPl(); renderStage(); switchTab('class');
+    stop(); C.list = ids; C.idx = 0; C.lessonId = null; C.examId = x.id; C.lessonTitle = examLabel(x); saveClass(); renderPl(); renderStage(); switchTab('class');
   };
   if ($('xbPub')) $('xbPub').onclick = async () => {
     if (!x.published && !n) return toast('문장을 먼저 넣어 주세요.', true);
@@ -1165,15 +1165,20 @@ function openXInfo(x, s) {
       <div class="xl-h">출제 예상 유형 <span class="small">(여러 개 고를 수 있어요)</span></div>
       <div class="xtypes">${XTYPES.map((t) => `<label class="chk"><input type="checkbox" value="${t}" ${(it.types || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}</div>
       <label>핵심 포인트<input id="xiPoint" maxlength="120" value="${esc(it.point || '')}" placeholder="예: what → the thing which 바꿔 쓰기 / 관계부사 where 생략 불가"></label>
+      <label>재생 전 읽어 줄 출처 <span class="small">— 비우면 문장 출처를 읽어요</span><input id="xiSay" maxlength="60" value="${esc(it.say_src || '')}" placeholder="${esc(sayLabel(s, null) || '예: 2026년 고이 9월 모의고사 29번')}"></label>
+      <p class="small" id="xiSayPrev" style="margin:-4px 0 12px"></p>
       <div class="xl-h">출제 가능성</div>
       <div class="xseg" id="xiLevel">${[0, 1, 2, 3].map((v) => `<button type="button" data-v="${v}" class="${(it.level || 0) === v ? 'on' : ''}">${v ? '★'.repeat(v) : '미정'}</button>`).join('')}</div>
     </div>
     <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="xiSave">저장</button></div>`, 'sm');
   let level = it.level || 0;
+  const n = xItemsOf(x.id).findIndex((y) => y.sentence_id === s.id) + 1;
+  const prev = () => { const lab = $('xiSay').value.trim() || sayLabel(s, null); $('xiSayPrev').textContent = `🔊 "${n}번. ${lab ? lab + (/지문$/.test(lab) ? '' : ' 지문') : ''}." 라고 읽은 뒤 문장을 읽어요 (번호는 수업 목록 순서)`; };
+  $('xiSay').oninput = prev; prev();
   $('xiLevel').onclick = (e) => { const b = e.target.closest('[data-v]'); if (!b) return; level = Number(b.dataset.v); $('xiLevel').querySelectorAll('button').forEach((y) => y.classList.toggle('on', y === b)); };
   $('xiSave').onclick = async () => {
     const types = [...document.querySelectorAll('.xtypes input:checked')].map((i) => i.value);
-    const patch = { types, point: $('xiPoint').value.trim() || null, level: level || null };
+    const patch = { types, point: $('xiPoint').value.trim() || null, level: level || null, say_src: $('xiSay').value.trim() || null };
     const { error } = await sb.from('drill_exam_items').update(patch).eq('set_id', x.id).eq('sentence_id', s.id);
     if (error) return toast(errText(error), true);
     Object.assign(it, patch); closeModal(); renderLib(); toast('서술형 정보를 저장했어요.');
@@ -1442,6 +1447,42 @@ async function ensureNumbers() {
     return true;
   } catch (e) { numFailed = true; toast('번호 음성을 준비하지 못해 이번에는 번호 없이 재생해요. ' + errText(e), true); return false; }
 }
+/* 내신 세트 재생: 문장마다 "1번. 2026년 고이 9월 모의고사 29번 지문." 안내를 먼저 읽음 */
+const KO_DIGIT = { 1: '일', 2: '이', 3: '삼' };
+function sayLabel(s, it) {
+  if (it && it.say_src) return it.say_src.trim();
+  const src = s.source || {};
+  let t = '';
+  if (src.type === 'mock') t = `${src.year ? src.year + '년 ' : ''}${src.grade || ''} ${src.month ? src.month + '월 ' : ''}모의고사${src.no ? ' ' + src.no + '번' : ''}`;
+  else if (src.type === 'csat') t = `${src.year ? src.year + '학년도 ' : ''}수능${src.no ? ' ' + src.no + '번' : ''}`;
+  else t = srcLabel(s) || '';
+  return squash(t.replace(/([고중])([123])(?![0-9])/g, (m, a, d) => a + KO_DIGIT[d]));
+}
+function sayText(i) {
+  const s = byId(C.list[i]); if (!s) return '';
+  const lab = sayLabel(s, xItem(C.examId, s.id));
+  return lab ? `${i + 1}번. ${lab}${/지문$/.test(lab) ? '' : ' 지문'}.` : `${i + 1}번.`;
+}
+async function ensureSay() {
+  D.say = D.say || {};
+  const texts = C.list.map((_, i) => sayText(i)).filter(Boolean);
+  const need = texts.filter((t) => !D.say[t]);
+  if (!need.length) return true;
+  try {
+    setStateText('안내 음성 준비 중…');
+    const r = await fn('say', { texts: need });
+    Object.assign(D.say, r.paths || {});
+    return need.some((t) => D.say[t]) || !need.length;
+  } catch (e) { toast('출처 안내 음성을 준비하지 못해 이번에는 번호로 읽어요. ' + errText(e), true); return false; }
+}
+async function playSay(i, tok) {
+  const p = D.say && D.say[sayText(i)];
+  if (!p) return playNumber(i + 1, tok);
+  const url = await audioUrl(p).catch(() => null);
+  if (!url) return playNumber(i + 1, tok);
+  if (!await seg(P.num, url, 0, null, 1, tok)) return false;
+  return wait(450, tok);
+}
 async function playNumber(n, tok) {
   const p = D.num && D.num.paths && D.num.paths[n];
   if (!p) return true;
@@ -1459,7 +1500,7 @@ async function playSentence(s, mode, tok) {
   if (needKo && !koUrl) { toast('이 문장은 우리말 음성이 없어 끊어듣기로 재생해요. ↻로 음성을 다시 만들어 주세요.', true); mode = 'chunk'; }
   if (tok !== P.tok) return false;
   const full = async () => { V.cur = -1; drawChunks(); return seg(P.en, enUrl, 0, null, O.speed, tok); };
-  if (!await playNumber(C.idx + 1, tok)) return false;   // 항상 번호부터
+  if (!await (C.examId && D.say ? playSay(C.idx, tok) : playNumber(C.idx + 1, tok))) return false;   // 항상 번호부터 (내신 세트는 '1번, ○○ 29번 지문')
   for (let r = 0; r < (O.rep || 1); r++) {
     if (r > 0 && !await wait(800, tok)) return false;
     resetV(); drawChunks();
@@ -1501,7 +1542,7 @@ async function run() {
   const tok = ++P.tok;
   setPlaying(true);
   try {
-    await ensureNumbers();
+    if (C.examId && examById(C.examId)) { if (!await ensureSay()) await ensureNumbers(); } else await ensureNumbers();
     if (tok !== P.tok) return;
     setStateText();
     for (;;) {
