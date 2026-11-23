@@ -72,10 +72,14 @@ async function fn(op, body = {}) {
 const D = { cats: [], sents: [], lessons: [], staff: [], me: '', schools: [], exams: [], xitems: [], voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
 const byId = (id) => D.sents.find((s) => s.id === id);
 function sortSents(a) {
+  const o = catOrder();
   return a.sort((x, y) => {
     if (x.category !== y.category) {
       if (x.category == null) return 1;
       if (y.category == null) return -1;
+      const ox = o.get(x.category), oy = o.get(y.category);
+      if (ox != null && oy != null) return ox - oy;
+      if (ox != null) return -1; if (oy != null) return 1;
       return natural(x.category, y.category);
     }
     return (x.position - y.position) || String(x.created_at).localeCompare(String(y.created_at));
@@ -215,6 +219,8 @@ function catTree() {
   D.cats.forEach((c) => { if (!seen.has(c.code)) walk(c, 0); });
   return out;
 }
+function catOrder() { const m = new Map(); catTree().forEach(({ c }, i) => m.set(c.code, i)); return m; }
+const catOptTree = (sel) => catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(c.code)} ${esc(c.title || '')}</option>`).join('');
 function catDesc(code) { const out = new Set([code]); let grew = true; while (grew) { grew = false; D.cats.forEach((c) => { if (c.parent && out.has(c.parent) && !out.has(c.code)) { out.add(c.code); grew = true; } }); } return out; }
 function renderCats() {
   const own = {}; D.sents.forEach((s) => { if (s.category) own[s.category] = (own[s.category] || 0) + 1; });
@@ -280,7 +286,7 @@ function addSubCat(parent) {
     if (D.cats.some((c) => c.code === code)) return toast('이미 있는 번호예요.', true);
     const { data, error } = await sb.from('drill_categories').insert({ code, title: title || null, parent: p.code }).select().single();
     if (error) return toast(errText(error), true);
-    D.cats.push(data); D.cats.sort((a, b) => natural(a.code, b.code));
+    D.cats.push(data); D.cats.sort((a, b) => natural(a.code, b.code)); sortSents(D.sents);
     L.catClosed.delete(p.code); store.set('catClosed', [...L.catClosed]);
     closeModal(); L.cat = code; renderLib(); toast(`${p.code} 아래에 ${code}를 만들었어요.`);
   };
@@ -325,6 +331,7 @@ function editCat(code) {
     if (error) return toast(errText(error), true);
     D.cats = D.cats.filter((x) => x.code !== code);
     D.cats.forEach((x) => { if (x.parent === code) x.parent = null; });
+    sortSents(D.sents);
     D.sents.forEach((s) => { if (s.category === code) s.category = null; });
     sortSents(D.sents); if (L.cat === code) L.cat = '';
     renderLib();
@@ -423,7 +430,8 @@ function renderLib() {
         last = s.category; n = 0;
         if (groups) {
           const c = D.cats.find((x) => x.code === s.category);
-          h += `<div class="group-h">${s.category ? esc(s.category) : '미분류'} <span>${c && c.title ? esc(c.title) : ''}</span></div>`;
+          const par = c && c.parent ? D.cats.find((x) => x.code === c.parent) : null;
+          h += `<div class="group-h${par ? ' sub' : ''}">${par ? `<em>${esc(par.code)} ›</em> ` : ''}${s.category ? esc(s.category) : '미분류'} <span>${c && c.title ? esc(c.title) : ''}</span></div>`;
         }
       }
       n++;
@@ -455,7 +463,7 @@ $('selTts').onclick = () => makeAudio(D.sents.filter((s) => L.sel.has(s.id)).map
 $('selMove').onclick = () => {
   openModal(`
     <div class="mh"><h3>카테고리 옮기기</h3><button class="icon" data-close>✕</button></div>
-    <div class="mb"><label>옮길 카테고리<select id="mvCat"><option value="">미분류</option>${D.cats.map((c) => `<option value="${esc(c.code)}">${esc(c.code)} ${esc(c.title || '')}</option>`).join('')}</select></label></div>
+    <div class="mb"><label>옮길 카테고리<select id="mvCat"><option value="">미분류</option>${catOptTree(L.cat && L.cat !== '__none' ? L.cat : '')}</select></label></div>
     <div class="mf"><button class="btn ghost" data-close>취소</button><button class="btn primary" id="mvGo">${L.sel.size}개 옮기기</button></div>`, 'sm');
   $('mvGo').onclick = async () => {
     const cat = $('mvCat').value || null;
@@ -932,7 +940,7 @@ function openLoader() {
   const draw = () => `
     <div class="mh"><h3>수업 목록 불러오기</h3><button class="icon" data-close>✕</button></div>
     <div class="mb pick">
-      <div><h4>카테고리</h4><div class="chips">${D.cats.filter((c) => catN(c.code)).map((c) => `<button class="chip" data-cat="${esc(c.code)}">${esc(c.code)}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
+      <div><h4>카테고리</h4><div class="chips">${catTree().map(({ c, d }) => ({ c, d })).filter(({ c }) => catN(c.code)).map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(c.code)}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
       <div><h4>모아 듣기</h4><div class="chips">
         <button class="chip" data-all="lessons">지금까지 수업한 문장 전체<small>${allLessonIds().length}</small></button>
         <button class="chip" data-all="star">★ 별표 문장<small>${starN}</small></button>
