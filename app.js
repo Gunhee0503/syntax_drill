@@ -1984,4 +1984,22 @@ sb.auth.onAuthStateChange((ev) => {
   }, 300);
 });
 boot();
+/* 왼쪽 큰 묶음(카테고리·수업·내신 주요구문) 접기/펼치기 — 제목 줄을 누르면 토글, 브라우저에 기억 */
+(function () {
+  const closed = new Set(store.get('secClosed', []));
+  const apply = () => document.querySelectorAll('.side-h[data-sec]').forEach((h) => {
+    const k = h.dataset.sec, shut = closed.has(k), body = document.getElementById('sec-' + k);
+    if (body) body.hidden = shut;
+    h.classList.toggle('shut', shut); h.setAttribute('aria-expanded', String(!shut));
+    const t = h.querySelector('.stog'); if (t) t.textContent = shut ? '▸' : '▾';
+  });
+  document.querySelectorAll('.side-h[data-sec]').forEach((h) => {
+    h.addEventListener('click', (e) => {
+      if (e.target.closest('button')) { const k = h.dataset.sec; if (closed.has(k)) { closed.delete(k); store.set('secClosed', [...closed]); apply(); } return; }
+      const k = h.dataset.sec; closed.has(k) ? closed.delete(k) : closed.add(k); store.set('secClosed', [...closed]); apply();
+    });
+  });
+  apply();
 })();
+})();
+

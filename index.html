@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="app.css?v=22">
+<link rel="stylesheet" href="app.css?v=23">
 </head>
 <body>
 
@@ -45,18 +45,24 @@
   <!-- 문장 관리 -->
   <section id="tab-lib" class="tab lib">
     <aside class="side">
-      <div class="side-h"><span>카테고리</span><button class="btn ghost sm" id="catAddBtn">+ 추가</button></div>
+      <div class="side-h" data-sec="cat"><span class="stog">▾</span><span>카테고리</span><button class="btn ghost sm" id="catAddBtn">+ 추가</button></div>
+      <div class="secbody" id="sec-cat">
       <form id="catAdd" class="catadd" hidden>
         <input id="catCode" placeholder="번호 (예: 1-1)" maxlength="20" required>
         <input id="catTitle" placeholder="이름 (선택, 예: 관계사 기초)" maxlength="40">
         <div class="row"><button class="btn primary sm" type="submit">추가</button><button class="btn ghost sm" type="button" id="catCancel">취소</button></div>
       </form>
       <ul id="catList" class="catlist"></ul>
-      <div class="side-h side-h2"><span>수업</span><button class="btn ghost sm" id="lessonAddBtn">+ 수업</button></div>
+      </div>
+      <div class="side-h side-h2" data-sec="lesson"><span class="stog">▾</span><span>수업</span><button class="btn ghost sm" id="lessonAddBtn">+ 수업</button></div>
+      <div class="secbody" id="sec-lesson">
       <input id="lessonQ" class="side-q" type="search" placeholder="수업 검색 (날짜·반·제목)" autocomplete="off">
       <ul id="lessonSide" class="catlist lessonside"></ul>
-      <div class="side-h side-h2"><span>내신 주요구문</span><button class="btn ghost sm" id="examAddBtn">+ 세트</button></div>
+      </div>
+      <div class="side-h side-h2" data-sec="exam"><span class="stog">▾</span><span>내신 주요구문</span><button class="btn ghost sm" id="examAddBtn">+ 세트</button></div>
+      <div class="secbody" id="sec-exam">
       <ul id="examList" class="catlist examlist"></ul>
+      </div>
     </aside>
     <main class="libmain">
       <div class="toolbar">
@@ -210,6 +216,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=35"></script>
+<script src="app.js?v=36"></script>
 </body>
 </html>

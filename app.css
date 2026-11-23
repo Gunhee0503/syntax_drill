@@ -448,3 +448,38 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .examlist li.xg{cursor:pointer}
 .examlist li.xg:hover{background:rgba(47,95,147,.06)}
 .examlist li.xg .car{width:10px;flex-shrink:0;font-size:10px;color:#7a8aa0;text-align:center}
+
+/* ===== 왼쪽 메뉴 크기·색 정리 (단계가 내려갈수록 작게, 색으로 구분) ===== */
+.side .side-h{font-size:12px;letter-spacing:-.01em;cursor:pointer;user-select:none;gap:6px;margin-bottom:8px}
+.side .side-h > span:nth-child(2){flex:1}
+.side .side-h .stog{width:10px;font-size:9px;color:#a39a88}
+.side .side-h:hover > span:nth-child(2){color:var(--ink)}
+.side .side-h.shut{margin-bottom:0}
+.side .side-h .btn.sm{font-size:11px;padding:3px 7px}
+.side-h2{margin-top:16px;padding-top:12px}
+.side .catlist li{font-size:12.5px;letter-spacing:-.02em;padding:5px 8px;gap:6px;border-radius:7px}
+.side .catlist .n{font-size:10.5px}
+.side .catlist .code{min-width:0}
+/* 카테고리: 1단 검정 · 2단 황토 · 3단 올리브 */
+#catList li.cat{font-size:12.5px;padding:5px 8px 5px calc(8px + var(--d,0) * 12px)}
+#catList li.cat .ttl{color:var(--ink2)}
+#catList li.cat.d1{font-size:11.5px;letter-spacing:-.03em}
+#catList li.cat.d1 .code{color:#a5700e}
+#catList li.cat.d1 .ttl{color:#8a6a35}
+#catList li.cat.d2{font-size:10.5px;letter-spacing:-.035em}
+#catList li.cat.d2 .code{color:#6d7f2a}
+#catList li.cat.d2 .ttl{color:#7c8a52}
+#catList li.cat.d1.on{background:#fbf3e2}
+#catList li.cat.d2.on{background:#f3f5e6}
+/* 수업 */
+.lessonside .ttl{font-size:12px}
+.lessonside .ttl small{font-size:10.5px}
+/* 내신 주요구문: 학교 검정 · 시험 남색 · 범위 하늘색 */
+.examlist li.xs{font-size:12.5px}
+.examlist li.xg{font-size:11.5px;letter-spacing:-.03em;color:#2a4e78;padding-left:20px}
+.examlist li.xg .ttl{color:#2a4e78}
+.examlist li.xset{font-size:10.5px;letter-spacing:-.035em;padding:4px 8px 4px 24px;margin-left:20px}
+.examlist li.xset .ttl{color:#4a7fb5}
+.examlist li.xset.on .ttl{color:#1d4673}
+.examlist .xg-add{font-size:10px;padding:2px 6px}
+.examlist .xacts button{width:20px;height:20px;font-size:11px}
