@@ -221,7 +221,9 @@ function renderCats() {
   const count = (code) => [...catDesc(code)].reduce((n, k) => n + (own[k] || 0), 0);
   const none = D.sents.filter((s) => !s.category).length;
   const closed = L.catClosed;
-  let h = `<li class="${L.cat === '' ? 'on' : ''}" data-c=""><span class="code">전체</span><span class="ttl"></span><span class="n">${D.sents.length}</span></li>`;
+  const parents = D.cats.filter((c) => catKids(c.code).length);
+  const allShut = parents.length && parents.every((c) => closed.has(c.code));
+  let h = `<li class="all ${L.cat === '' ? 'on' : ''}" data-c="" title="${parents.length ? '눌러서 하위 카테고리 모두 접기/펴기' : ''}">${parents.length ? `<span class="car">${allShut ? '▸' : '▾'}</span>` : ''}<span class="code">전체</span><span class="ttl"></span><span class="n">${D.sents.length}</span></li>`;
   const hidden = new Set(); catTree().forEach(({ c }) => { if (closed.has(c.code) || hidden.has(c.code)) catKids(c.code).forEach((k) => hidden.add(k.code)); });
   for (const { c, d } of catTree()) {
     if (hidden.has(c.code)) continue;
@@ -238,7 +240,15 @@ $('catList').onclick = (e) => {
   const tog = e.target.closest('[data-cattog]');
   if (tog) { e.stopPropagation(); const k = tog.dataset.cattog; L.catClosed.has(k) ? L.catClosed.delete(k) : L.catClosed.add(k); store.set('catClosed', [...L.catClosed]); return renderCats(); }
   const li = e.target.closest('li'); if (!li) return;
-  L.cat = li.dataset.c; L.xschool = ''; renderLib();
+  const k = li.dataset.c;
+  // 하위가 있는 카테고리 줄을 누르면 고르면서 하위 메뉴를 접었다 폈다. '전체'는 모든 하위를 한꺼번에 접기/펴기
+  if (k === '') {
+    const parents = D.cats.filter((c) => catKids(c.code).length).map((c) => c.code);
+    if (parents.length) { const allShut = parents.every((p) => L.catClosed.has(p)); parents.forEach((p) => (allShut ? L.catClosed.delete(p) : L.catClosed.add(p))); store.set('catClosed', [...L.catClosed]); }
+  } else if (k !== '__none' && catKids(k).length) {
+    L.catClosed.has(k) ? L.catClosed.delete(k) : L.catClosed.add(k); store.set('catClosed', [...L.catClosed]);
+  }
+  L.cat = k; L.xschool = ''; renderLib();
 };
 $('catAddBtn').onclick = () => { $('catAdd').hidden = !$('catAdd').hidden; if (!$('catAdd').hidden) $('catCode').focus(); };
 $('catCancel').onclick = () => { $('catAdd').hidden = true; };
