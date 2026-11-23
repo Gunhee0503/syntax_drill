@@ -1082,6 +1082,7 @@ const EXAM_NAME = { mid: '중간', final: '기말' };
 function examKey(x) { return [x.school, x.year, x.grade, x.term, x.exam].join('|'); }
 function examById(id) { return D.exams.find((x) => x.id === id) || null; }
 function editX() { return (L.exam && examById(L.exam)) || null; }
+function examTitle(x) { return `${x.school} ${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}고사`; }
 function examLabel(x) { return `${x.school} ${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}${x.name ? ' · ' + x.name : ''}`; }
 function examShort(x) { return `${x.school} ${x.grade}-${x.term} ${EXAM_NAME[x.exam]} '${String(x.year).slice(2)}${x.name ? ' · ' + x.name : ''}`; }
 function sortExams(a) {
@@ -1172,6 +1173,60 @@ function openAddRange(key) {
   $('arGo').onclick = go;
   $('arName').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
 }
+// 세트를 통째로 다른 학교(시험)로 복사: 문장·순서·서술형 정보까지. 같은 이름 세트가 있으면 빠진 문장만 더함
+function openCopyExam(x) {
+  const df = { ...x, school: D.schools.find((y) => y.name !== x.school) ? D.schools.find((y) => y.name !== x.school).name : x.school };
+  const n = xItemsOf(x.id).length;
+  openModal(`
+    <div class="mh"><h3>다른 학교로 복사</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <p class="small" style="margin:0 0 10px">${esc(examLabel(x))} · ${n}문장 (순서·서술형 유형·포인트·★·읽어 줄 출처까지 함께 복사)</p>
+      <div class="xgrid">
+        <label>학교<select id="cpSchool">${D.schools.map((y) => `<option ${y.name === df.school ? 'selected' : ''}>${esc(y.name)}</option>`).join('')}</select></label>
+        <label>학년<select id="cpGrade">${[1, 2, 3].map((g) => `<option value="${g}" ${g === x.grade ? 'selected' : ''}>${g}학년</option>`).join('')}</select></label>
+        <label>연도<input id="cpYear" type="number" min="2000" max="2100" value="${x.year}"></label>
+        <label>학기<select id="cpTerm"><option value="1" ${x.term === 1 ? 'selected' : ''}>1학기</option><option value="2" ${x.term === 2 ? 'selected' : ''}>2학기</option></select></label>
+        <label>시험<select id="cpExam"><option value="mid" ${x.exam === 'mid' ? 'selected' : ''}>중간고사</option><option value="final" ${x.exam === 'final' ? 'selected' : ''}>기말고사</option></select></label>
+        <label>범위 이름<input id="cpName" maxlength="40" value="${esc(x.name || '')}" placeholder="비우면 시험 전체"></label>
+      </div>
+      <label>시험범위 기록<textarea id="cpScope" rows="2" maxlength="500">${esc(x.scope || '')}</textarea></label>
+      <label>ECHO 공개할 반<select id="cpClass"><option value="">반 목록 불러오는 중…</option></select></label>
+      <p class="small" id="cpNote" style="margin:4px 0 0"></p>
+    </div>
+    <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="cpGo">복사하기</button></div>`, 'sm');
+  loadHubClasses().then((list) => {
+    const sel = $('cpClass'); if (!sel) return;
+    sel.innerHTML = '<option value="">공개 안 함 (선생님만)</option>' + list.map((c) => `<option value="${esc(c.code)}">${esc(c.name)}</option>`).join('');
+  });
+  const target = () => ({ school: $('cpSchool').value, grade: Number($('cpGrade').value), year: Number($('cpYear').value), term: Number($('cpTerm').value), exam: $('cpExam').value, name: $('cpName').value.trim().replace(/\s+/g, ' ') || null });
+  const note = () => {
+    const t = target(), same = D.exams.find((y) => examKey(y) === examKey(t) && (y.name || '') === (t.name || ''));
+    $('cpNote').textContent = same ? (same.id === x.id ? '지금 세트와 같아요. 학교나 시험을 바꿔 주세요.' : `"${examLabel(same)}" 세트가 이미 있어요 — 거기에 없는 문장만 더해요.`) : '새 세트로 만들어요.';
+  };
+  ['cpSchool', 'cpGrade', 'cpYear', 'cpTerm', 'cpExam', 'cpName'].forEach((id) => { $(id).oninput = note; $(id).onchange = note; }); note();
+  $('cpGo').onclick = async () => {
+    const t = target();
+    if (!t.year || t.year < 2000 || t.year > 2100) return toast('연도를 확인해 주세요.', true);
+    let dest = D.exams.find((y) => examKey(y) === examKey(t) && (y.name || '') === (t.name || ''));
+    if (dest && dest.id === x.id) return toast('지금 세트와 같아요. 학교나 시험을 바꿔 주세요.', true);
+    if (!dest) {
+      const code = $('cpClass').value, cls = (HUB_CLASSES || []).find((c) => c.code === code);
+      const { data, error } = await sb.from('drill_exam_sets').insert({ ...t, scope: $('cpScope').value.trim() || null, class_code: code || null, class_name: cls ? cls.name : null }).select().single();
+      if (error) return toast(errText(error), true);
+      dest = data; D.exams = sortExams([...D.exams, data]);
+    }
+    const have = new Set(xItemsOf(dest.id).map((it) => it.sentence_id));
+    let pos = Math.max(0, ...xItemsOf(dest.id).map((it) => it.position));
+    const rows = xItemsOf(x.id).filter((it) => !have.has(it.sentence_id)).map((it) => ({ set_id: dest.id, sentence_id: it.sentence_id, position: ++pos, types: it.types || [], point: it.point || null, level: it.level || null, say_src: it.say_src || null }));
+    if (rows.length) {
+      const { data, error } = await sb.from('drill_exam_items').insert(rows).select();
+      if (error) return toast(errText(error), true);
+      D.xitems.push(...data);
+    }
+    closeModal(); setEditExam(dest.id, true);
+    toast(rows.length ? `${examLabel(dest)}에 ${rows.length}문장을 복사했어요.` : '복사할 새 문장이 없었어요. 이미 다 들어 있어요.');
+  };
+}
 function renderXtypeFilter() {
   const has = D.xitems.some((x) => (x.types || []).length);
   $('xtypeFilter').hidden = !has && !L.xtype;
@@ -1184,16 +1239,20 @@ function renderExamBar() {
   if (!x) { bar.hidden = true; return; }
   const n = xItemsOf(x.id).length;
   bar.hidden = false;
-  bar.innerHTML = `<div class="lb-t"><span class="lb-k">편집 중인 내신 세트</span><b>${esc(examLabel(x))}</b><span class="lb-s">${n}문장</span>
-      <span class="lb-p ${x.published ? 'on' : ''}">${x.published ? `ECHO 공개 중 · ${esc(x.class_name || x.class_code)}` : x.class_code ? `ECHO 공개 전 · ${esc(x.class_name || x.class_code)}` : ''}</span></div>
+  // 타이틀: 시험 / 부제: 범위(세트 이름) / 그 아래: 시험범위 기록
+  bar.innerHTML = `<div class="xb-head"><span class="lb-k">편집 중인 내신 세트</span>
+      <div class="xb-title">${esc(examTitle(x))}</div>
+      <div class="xb-sub"><b>${x.name ? esc(x.name) : '시험 전체'}</b><span class="lb-s">${n}문장</span>
+        <span class="lb-p ${x.published ? 'on' : ''}">${x.published ? `ECHO 공개 중 · ${esc(x.class_name || x.class_code)}` : x.class_code ? `ECHO 공개 전 · ${esc(x.class_name || x.class_code)}` : ''}</span></div>
+      <div class="xb-scope"><span>시험범위</span>${x.scope ? esc(x.scope) : '<i>아직 기록 없음 — 세트 정보에서 적어 두세요</i>'}</div></div>
     <div class="lb-a"><button class="btn sm ${L.onlyExam ? 'primary' : ''}" id="xbOnly" aria-pressed="${L.onlyExam}">이 세트 문장만 보기</button>
       ${x.class_code ? `<button class="btn sm" id="xbPub">${x.published ? '공개 내리기' : '학생에게 공개'}</button>` : ''}
-      <button class="btn sm" id="xbOpen">수업 화면에서 열기</button><button class="btn ghost sm" id="xbEdit">세트 정보</button><button class="btn ghost sm" id="xbEnd">편집 끝내기</button></div>
-    ${x.scope ? `<p class="lb-scope"><span>범위</span>${esc(x.scope)}</p>` : ''}
+      <button class="btn sm" id="xbOpen">수업 화면에서 열기</button><button class="btn sm" id="xbCopy" title="문장·순서·서술형 정보를 그대로 다른 학교(시험) 세트로">다른 학교로 복사</button><button class="btn ghost sm" id="xbEdit">세트 정보</button><button class="btn ghost sm" id="xbEnd">편집 끝내기</button></div>
     <p class="lb-h">+ 새 문장으로 올리는 문장은 이 세트에 바로 들어가요. 있던 문장은 체크한 뒤 <b>이 세트에 넣기</b>. 세트 안 문장의 <b>✍</b>로 서술형 유형·핵심 포인트·출제 가능성을 적어요.</p>`;
   $('xbOnly').onclick = () => { L.onlyExam = !L.onlyExam; renderLib(); };
   $('xbEnd').onclick = () => setEditExam(null);
   $('xbEdit').onclick = () => openExamSet(x);
+  $('xbCopy').onclick = () => openCopyExam(x);
   $('xbOpen').onclick = () => {
     const ids = xItemsOf(x.id).map((it) => it.sentence_id).filter((id) => byId(id));
     if (!ids.length) return toast('아직 이 세트에 문장이 없어요.', true);

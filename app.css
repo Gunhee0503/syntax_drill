@@ -349,3 +349,13 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .examlist li.xset{padding-left:34px}
 .examlist .xwhole{color:var(--ink3)}
 .examlist li.xset .ttl{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 내신 세트 편집 줄: 타이틀(시험) / 부제(범위) / 시험범위 기록 */
+.exambar .xb-head{flex:1;min-width:260px;display:flex;flex-direction:column;gap:3px}
+.exambar .xb-title{font-size:18px;font-weight:800;letter-spacing:-.01em;color:var(--ink)}
+.exambar .xb-sub{display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.exambar .xb-sub b{font-size:15px;color:#2f5f93}
+.exambar .xb-scope{font-size:13px;color:var(--ink2);white-space:pre-wrap;margin-top:2px}
+.exambar .xb-scope span{display:inline-block;font-size:11px;font-weight:700;color:#2f5f93;background:#dde9f6;border-radius:6px;padding:1px 6px;margin-right:6px}
+.exambar .xb-scope i{color:var(--ink3);font-style:normal}
+.exambar .lb-a{align-self:flex-start}
+.examlist li.xg .ttl{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}
