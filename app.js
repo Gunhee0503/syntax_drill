@@ -1139,7 +1139,7 @@ function renderExamSide() {
       const g = gs[0], n2 = new Set(D.xitems.filter((it) => gs.some((x) => x.id === it.set_id)).map((it) => it.sentence_id)).size;
       h += `<li class="xg" data-xg="${esc(k)}"><span class="ttl">${g.year} · ${g.grade}학년 ${g.term}학기 ${EXAM_NAME[g.exam]}</span><span class="n">${n2 || ''}</span><button class="xg-add" data-xg-add="${esc(k)}" title="이 시험에 범위 추가">+ 범위</button></li>`;
       for (const x of gs) {
-        h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}" draggable="true" title="끌어서 다른 시험·학교로 옮길 수 있어요"><span class="tree" aria-hidden="true">↳</span><span class="ttl">${x.name ? esc(x.name) : '<span class="xwhole">시험 전체</span>'}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span><span class="xacts"><button data-xcopy="${x.id}" title="복사 (다른 학교·시험으로)" aria-label="복사">⧉</button><button data-xdel="${x.id}" title="삭제" aria-label="삭제">✕</button></span></li>`;
+        h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}" draggable="true" title="끌어서 다른 시험·학교로 옮길 수 있어요"><span class="tree" aria-hidden="true">↳</span><span class="ttl">${x.name ? esc(x.name) : '<span class="xwhole">시험 전체</span>'}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span><span class="xacts"><button data-xcopy="${x.id}" title="복제 (바로 아래에 복사본 생성)" aria-label="복제">⧉</button><button data-xdel="${x.id}" title="삭제" aria-label="삭제">✕</button></span></li>`;
       }
     }
   }
@@ -1149,7 +1149,7 @@ $('examList').onclick = (e) => {
   const li = e.target.closest('li'); if (!li) return;
   const add = e.target.closest('[data-xg-add]');
   if (add) return openAddRange(add.dataset.xgAdd);
-  const cp = e.target.closest('[data-xcopy]'); if (cp) return openCopyExam(examById(cp.dataset.xcopy));
+  const cp = e.target.closest('[data-xcopy]'); if (cp) return duplicateExam(examById(cp.dataset.xcopy));
   const del = e.target.closest('[data-xdel]'); if (del) return deleteExam(examById(del.dataset.xdel));
   if (li.dataset.x) { L.cat = ''; return setEditExam(li.dataset.x, true); }
   if (li.dataset.xg) return;
@@ -1200,6 +1200,25 @@ function openAddRange(key) {
   $('arName').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
 }
 // 세트를 통째로 다른 학교(시험)로 복사: 문장·순서·서술형 정보까지. 같은 이름 세트가 있으면 빠진 문장만 더함
+// 왼쪽 ⧉: 묻지 않고 같은 시험 아래에 복제본을 바로 만듦 (문장·순서·서술형 정보까지). 학생 공개는 꺼진 채로
+async function duplicateExam(x) {
+  if (!x) return;
+  const base = (x.name || '시험 전체') + ' 복사본';
+  let name = base, i = 2;
+  while (D.exams.some((y) => examKey(y) === examKey(x) && (y.name || '') === name)) name = `${base} ${i++}`;
+  const row = { school: x.school, grade: x.grade, year: x.year, term: x.term, exam: x.exam, name, scope: x.scope || null, class_code: x.class_code || null, class_name: x.class_name || null, published: false };
+  const { data, error } = await sb.from('drill_exam_sets').insert(row).select().single();
+  if (error) return toast(errText(error), true);
+  D.exams = sortExams([...D.exams, data]);
+  const rows = xItemsOf(x.id).map((it, k) => ({ set_id: data.id, sentence_id: it.sentence_id, position: k + 1, types: it.types || [], point: it.point || null, level: it.level || null, say_src: it.say_src || null }));
+  if (rows.length) {
+    const r = await sb.from('drill_exam_items').insert(rows).select();
+    if (r.error) toast(errText(r.error), true); else D.xitems.push(...r.data);
+  }
+  L.xopen.add(data.school); store.set('xopen', [...L.xopen]);
+  renderLib();
+  toast(`"${name}"을(를) 만들었어요 (${rows.length}문장). 끌어서 다른 학교·시험으로 옮기거나, 눌러서 이름을 바꿔 쓰세요.`);
+}
 async function deleteExam(x) {
   const n = xItemsOf(x.id).length;
   if (!await confirmBox('내신 세트 삭제', `"${examLabel(x)}" 세트를 지울까요?${n ? ` (문장 ${n}개)` : ''} 문장 자체는 남고, 이 세트에 적은 서술형 정보와 학생 공개만 사라져요.`, '삭제', true)) return false;
