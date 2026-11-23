@@ -204,7 +204,7 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { lesson: store.get('editLesson', null), onlyLesson: false, lessonAdd: false, examAdd: false, catClosed: new Set(store.get('catClosed', [])), lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, lessonAdd: false, examAdd: false, catClosed: new Set(store.get('catClosed', [])), xgOpen: new Set(store.get('xgOpen', [])), lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 /* 카테고리 트리: parent(상위 번호)로 묶음. 상위를 고르면 하위 문장까지 함께 보임 */
 function catKids(code) { return D.cats.filter((c) => c.parent === code).sort((a, b) => natural(a.code, b.code)); }
@@ -1193,7 +1193,7 @@ function xItemsOfSent(sid) { return D.xitems.filter((x) => x.sentence_id === sid
 function setEditExam(id, only, add) {
   L.exam = id || null; store.set('editExam', L.exam);
   L.examAdd = !!(id && add); if (L.examAdd) L.lessonAdd = false;
-  if (id && examById(id)) { L.xopen.add(examById(id).school); store.set('xopen', [...L.xopen]); }
+  if (id && examById(id)) { L.xopen.add(examById(id).school); store.set('xopen', [...L.xopen]); L.xgOpen.add(examKey(examById(id))); store.set('xgOpen', [...L.xgOpen]); }
   L.onlyExam = !!(id && only); if (id) L.xschool = '';
   renderLib();
 }
@@ -1211,7 +1211,9 @@ function renderExamSide() {
     for (const x of sets) { const k = examKey(x); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
     for (const [k, gs] of groups) {
       const g = gs[0], n2 = new Set(D.xitems.filter((it) => gs.some((x) => x.id === it.set_id)).map((it) => it.sentence_id)).size;
-      h += `<li class="xg" data-xg="${esc(k)}"><span class="ttl">${g.year} · ${g.grade}학년 ${g.term}학기 ${EXAM_NAME[g.exam]}</span><span class="n">${n2 || ''}</span><button class="xg-add" data-xg-add="${esc(k)}" title="이 시험에 범위 추가">+ 범위</button></li>`;
+      const gopen = L.xgOpen.has(k) || gs.some((x) => x.id === L.exam);
+      h += `<li class="xg ${gopen ? 'open' : ''}" data-xg="${esc(k)}" aria-expanded="${gopen}" title="눌러서 범위 펼치기/접기"><span class="car">${gopen ? '▾' : '▸'}</span><span class="ttl">${g.year} · ${g.grade}학년 ${g.term}학기 ${EXAM_NAME[g.exam]}</span><span class="n">${gopen ? (n2 || '') : `범위 ${gs.length}`}</span><button class="xg-add" data-xg-add="${esc(k)}" title="이 시험에 범위 추가">+ 범위</button></li>`;
+      if (!gopen) continue;
       for (const x of gs) {
         h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}" draggable="true" title="끌어서 다른 시험·학교로 옮길 수 있어요"><span class="tree" aria-hidden="true">↳</span><span class="ttl">${x.name ? esc(x.name) : '<span class="xwhole">시험 전체</span>'}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span><span class="xacts"><button data-xcopy="${x.id}" title="복제 (바로 아래에 복사본 생성)" aria-label="복제">⧉</button><button data-xdel="${x.id}" title="삭제" aria-label="삭제">✕</button></span></li>`;
       }
@@ -1226,7 +1228,11 @@ $('examList').onclick = (e) => {
   const cp = e.target.closest('[data-xcopy]'); if (cp) return duplicateExam(examById(cp.dataset.xcopy));
   const del = e.target.closest('[data-xdel]'); if (del) return deleteExam(examById(del.dataset.xdel));
   if (li.dataset.x) { L.cat = ''; return setEditExam(li.dataset.x, true); }
-  if (li.dataset.xg) return;
+  if (li.dataset.xg) {   // 시험 줄: 아래 범위 펼치기/접기 (지금 열어 둔 범위가 있는 시험을 접으면 그 범위도 닫음)
+    const k = li.dataset.xg, cur = editX() && examKey(editX()) === k, open = L.xgOpen.has(k) || cur;
+    if (open) { L.xgOpen.delete(k); store.set('xgOpen', [...L.xgOpen]); return cur ? setEditExam(null) : renderLib(); }
+    L.xgOpen.add(k); store.set('xgOpen', [...L.xgOpen]); return renderLib();
+  }
   if (li.dataset.xall != null) {
     const n = li.dataset.xall;
     L.xschool = L.xschool === n ? '' : n; L.cat = ''; if (L.xschool) { L.onlyExam = false; } return renderLib();
@@ -1289,7 +1295,7 @@ async function duplicateExam(x) {
     const r = await sb.from('drill_exam_items').insert(rows).select();
     if (r.error) toast(errText(r.error), true); else D.xitems.push(...r.data);
   }
-  L.xopen.add(data.school); store.set('xopen', [...L.xopen]);
+  L.xopen.add(data.school); store.set('xopen', [...L.xopen]); L.xgOpen.add(examKey(data)); store.set('xgOpen', [...L.xgOpen]);
   renderLib();
   toast(`"${name}"을(를) 만들었어요 (${rows.length}문장). 끌어서 다른 학교·시험으로 옮기거나, 눌러서 이름을 바꿔 쓰세요.`);
 }
