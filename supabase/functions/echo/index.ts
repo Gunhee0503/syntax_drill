@@ -78,54 +78,6 @@ async function introPath(db: any, fallbackVoice: string) {
 }
 const sentenceCols = "id, chunks, text, source, source_label, audio_en, audio_ko, times_en, times_ko";
 
-// 내신 세트 안내 음성 "1번. 2026년 고이 9월 모의고사 29번 지문." — 구문 드릴(drill 함수)과 같은 규칙·같은 파일
-const SAY_VOICE = "6ZPN1uE51vVTtd32NM3q";
-const KO_DIGIT: Record<string, string> = { "1": "일", "2": "이", "3": "삼" };
-function sayLabel(r: any, override?: string | null) {
-  if (override && override.trim()) return override.trim();
-  const src = r.source || {};
-  let t = "";
-  if (src.type === "mock") t = `${src.year ? src.year + "년 " : ""}${src.grade || ""} ${src.month ? src.month + "월 " : ""}모의고사${src.no ? " " + src.no + "번" : ""}`;
-  else if (src.type === "csat") t = `${src.year ? src.year + "학년도 " : ""}수능${src.no ? " " + src.no + "번" : ""}`;
-  else t = r.source_label || "";
-  return t.replace(/([고중])([123])(?![0-9])/g, (_m: string, a: string, d: string) => a + KO_DIGIT[d]).replace(/\s+/g, " ").trim();
-}
-const sayText = (i: number, lab: string) => lab ? `${i + 1}번. ${lab}${/지문$/.test(lab) ? "" : " 지문"}.` : `${i + 1}번.`;
-async function hash(s: string) {
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
-  return Array.from(new Uint8Array(d)).slice(0, 6).map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-async function sayPaths(db: any, texts: string[], fallbackVoice: string) {
-  const out: Record<string, string> = {};
-  const key = Deno.env.get("ELEVENLABS_API_KEY");
-  for (const voice of [SAY_VOICE, fallbackVoice]) {
-    const vv = String(voice).replace(/[^A-Za-z0-9]/g, ""), dir = `say/${vv}`;
-    const { data: list } = await db.storage.from(BUCKET).list(dir, { limit: 1000 });
-    const have = new Set((list || []).map((f: any) => f.name));
-    const todo: { t: string; p: string }[] = [];
-    for (const t of texts) { if (out[t]) continue; const name = `${await hash("say|" + t)}.mp3`; if (have.has(name)) out[t] = `${dir}/${name}`; else todo.push({ t, p: `${dir}/${name}` }); }
-    if (!todo.length || !key) break;
-    let i = 0, failed = false;
-    const worker = async () => {
-      while (i < todo.length) {
-        const x = todo[i++];
-        try {
-          const r = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${vv}?output_format=mp3_44100_128`, {
-            method: "POST", headers: { "xi-api-key": key, "Content-Type": "application/json" },
-            body: JSON.stringify({ text: x.t, model_id: Deno.env.get("DRILL_TTS_MODEL") || "eleven_multilingual_v2", voice_settings: { stability: 0.4, similarity_boost: 0.8, style: 0.3, use_speaker_boost: true } }),
-          });
-          if (!r.ok) { failed = true; console.error("say", vv, r.status); continue; }
-          const up = await db.storage.from(BUCKET).upload(x.p, new Uint8Array(await r.arrayBuffer()), { contentType: "audio/mpeg", upsert: true });
-          if (!up.error) out[x.t] = x.p;
-        } catch (e) { failed = true; console.error("say", (e as Error).message); }
-      }
-    };
-    await Promise.all([worker(), worker(), worker(), worker()]);
-    if (!failed) break;
-  }
-  return out;
-}
-
 const EXAM_NAME: Record<string, string> = { mid: "중간", final: "기말" };
 const examBase = (x: any) => `${x.school} ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam] || ""}`;
 const examLabel = (x: any) => examBase(x) + (x.name ? ` · ${x.name}` : "");
@@ -252,19 +204,15 @@ Deno.serve(async (req) => {
       const byId: Record<string, any> = {}; (rows || []).forEach((r: any) => { byId[r.id] = r; });
       const list = ids.map((i) => byId[i]).filter((r) => r && r.audio_en);
       const v = await voices(db);
-      let nums = Array.from({ length: Math.min(list.length, 80) }, (_, i) => `num/${String(v.en).replace(/[^A-Za-z0-9]/g, "")}/${i + 1}.mp3`);
-      if (body.exam && list.length) {   // 내신 세트는 번호 대신 "1번. ○○ 29번 지문."
-        const texts = list.map((r: any, i: number) => sayText(i, sayLabel(r, xinfo[r.id] && xinfo[r.id].say)));
-        const said = await sayPaths(db, texts.slice(0, 120), v.ko);
-        nums = texts.map((t: string, i: number) => said[t] || nums[i] || "");
-      }
+      const nums = Array.from({ length: Math.min(list.length, 80) }, (_, i) => `num/${String(v.en).replace(/[^A-Za-z0-9]/g, "")}/${i + 1}.mp3`);
+      // 내신 세트도 일반 수업과 같이 영어 "Number N."만 읽음. 출처는 화면에만 (세트에 적은 출처가 있으면 그걸로)
       const intro = list.length ? await introPath(db, v.ko) : null;
       const urls = await signMany(db, [...list.flatMap((r: any) => [r.audio_en, r.audio_ko]), ...nums, ...(intro ? [intro] : [])]);
       const { data: st } = await db.from("drill_student_stars").select("sentence_id").eq("student_id", sid);
       const starred = new Set((st || []).map((x: any) => x.sentence_id));
       return json({
         sentences: list.map((r: any) => ({
-          id: r.id, chunks: (r.chunks || []).filter((c: any) => c.en), source: r.source_label || "",
+          id: r.id, chunks: (r.chunks || []).filter((c: any) => c.en), source: (xinfo[r.id] && xinfo[r.id].say) || r.source_label || "",
           en: urls[r.audio_en] || null, ko: r.audio_ko ? urls[r.audio_ko] || null : null,
           times_en: r.times_en || [], times_ko: r.times_ko || [], star: starred.has(r.id),
           ...(xinfo[r.id] ? { xtypes: xinfo[r.id].types, point: xinfo[r.id].point, level: xinfo[r.id].level } : {}),
