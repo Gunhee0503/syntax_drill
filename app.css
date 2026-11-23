@@ -407,3 +407,41 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 #ldExams .lx-name{font-size:15px;font-weight:700;color:#2f5f93;flex:1}
 #ldExams li.lx-go{display:flex;justify-content:flex-end;gap:6px;margin:2px 0 10px 26px;background:none;padding:2px 0}
 #ldExams li.lx-go{border:0!important;box-shadow:none!important;background:none!important}
+
+/* 보기/넣기 스위치 */
+.lessonbar .addsw{flex-basis:100%;display:flex;align-items:center;gap:8px;margin:2px 0 0;cursor:pointer;font-size:13px;font-weight:700;color:var(--ink);flex-wrap:wrap}
+.lessonbar .addsw input{position:absolute;opacity:0;pointer-events:none}
+.lessonbar .addsw .sw{width:34px;height:20px;border-radius:10px;background:#cfcabf;position:relative;transition:background .15s;flex-shrink:0}
+.lessonbar .addsw .sw::after{content:'';position:absolute;left:2px;top:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:left .15s}
+.lessonbar .addsw input:checked + .sw{background:#d08a14}
+.exambar .addsw input:checked + .sw{background:#2f5f93}
+.lessonbar .addsw input:checked + .sw::after{left:16px}
+.lessonbar .addsw input:focus-visible + .sw{outline:2px solid var(--ink);outline-offset:2px}
+.lessonbar .addsw small{font-weight:500;color:var(--ink3);font-size:12px}
+.lessonbar.view{background:#fff;border-style:dashed;border-color:#e2d3b3}
+.exambar.view{background:#fff;border-color:#c9dbef}
+.lessonbar.view .lb-k{color:var(--ink3)}
+/* 왼쪽 수업 목록: 2줄, 작게 */
+.lessonside li{padding:6px 10px}
+.lessonside .ttl{font-size:12.5px;letter-spacing:-.02em;line-height:1.35}
+.lessonside .ttl .l1{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
+.lessonside .ttl b{font-weight:800}
+.lessonside .ttl small{font-size:11.5px;letter-spacing:-.03em;color:#8a7f6d}
+.lessonside li.on .ttl small{color:#6b5a3a}
+.lessonside .n{font-size:11px}
+/* 카테고리 트리 */
+#catList li.cat{font-size:13px;letter-spacing:-.02em;padding:6px 8px 6px calc(8px + var(--d,0) * 14px);gap:6px}
+#catList li.cat .car{width:12px;flex-shrink:0;font-size:11px;color:#9a917f;text-align:center}
+#catList li.cat .code{font-weight:800;min-width:0}
+#catList li.cat .ttl{text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink2)}
+#catList li.cat.d1{font-size:12px;letter-spacing:-.03em}
+#catList li.cat.d1 .code{color:#9a6a12}
+#catList li.cat.d1 .ttl{color:#7a6440}
+#catList li.cat.d2{font-size:11.5px;letter-spacing:-.035em}
+#catList li.cat.d2 .code{color:#7a8a3a}
+#catList li.cat .n{font-size:11px}
+#catList li.cat .cacts{display:none;gap:1px;flex-shrink:0}
+#catList li.cat:hover .cacts{display:flex}
+#catList li.cat:hover .n{display:none}
+#catList li.cat .cacts button{border:0;background:none;width:22px;height:22px;border-radius:6px;cursor:pointer;color:#8a7f6d;font-size:12px;line-height:1;opacity:1;position:static}
+#catList li.cat .cacts button:hover{background:rgba(0,0,0,.07);color:var(--ink)}

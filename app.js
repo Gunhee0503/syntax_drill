@@ -204,14 +204,29 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { lesson: store.get('editLesson', null), onlyLesson: false, lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, lessonAdd: false, examAdd: false, catClosed: new Set(store.get('catClosed', [])), lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
+/* 카테고리 트리: parent(상위 번호)로 묶음. 상위를 고르면 하위 문장까지 함께 보임 */
+function catKids(code) { return D.cats.filter((c) => c.parent === code).sort((a, b) => natural(a.code, b.code)); }
+function catTree() {
+  const has = new Set(D.cats.map((c) => c.code)), out = [], seen = new Set();
+  const walk = (c, d) => { if (seen.has(c.code)) return; seen.add(c.code); out.push({ c, d }); catKids(c.code).forEach((k) => walk(k, d + 1)); };
+  D.cats.filter((c) => !c.parent || !has.has(c.parent)).sort((a, b) => natural(a.code, b.code)).forEach((c) => walk(c, 0));
+  D.cats.forEach((c) => { if (!seen.has(c.code)) walk(c, 0); });
+  return out;
+}
+function catDesc(code) { const out = new Set([code]); let grew = true; while (grew) { grew = false; D.cats.forEach((c) => { if (c.parent && out.has(c.parent) && !out.has(c.code)) { out.add(c.code); grew = true; } }); } return out; }
 function renderCats() {
-  const count = (code) => D.sents.filter((s) => s.category === code).length;
+  const own = {}; D.sents.forEach((s) => { if (s.category) own[s.category] = (own[s.category] || 0) + 1; });
+  const count = (code) => [...catDesc(code)].reduce((n, k) => n + (own[k] || 0), 0);
   const none = D.sents.filter((s) => !s.category).length;
+  const closed = L.catClosed;
   let h = `<li class="${L.cat === '' ? 'on' : ''}" data-c=""><span class="code">전체</span><span class="ttl"></span><span class="n">${D.sents.length}</span></li>`;
-  for (const c of D.cats) {
-    h += `<li class="${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}"><span class="code">${esc(c.code)}</span><span class="ttl">${esc(c.title || '')}</span><span class="n">${count(c.code)}</span><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></li>`;
+  const hidden = new Set(); catTree().forEach(({ c }) => { if (closed.has(c.code) || hidden.has(c.code)) catKids(c.code).forEach((k) => hidden.add(k.code)); });
+  for (const { c, d } of catTree()) {
+    if (hidden.has(c.code)) continue;
+    const kids = catKids(c.code).length;
+    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(c.code)}</span><span class="ttl">${esc(c.title || '')}</span><span class="n">${count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
   }
   if (none) h += `<li class="${L.cat === '__none' ? 'on' : ''}" data-c="__none"><span class="code">–</span><span class="ttl">미분류</span><span class="n">${none}</span></li>`;
   $('catList').innerHTML = h;
@@ -219,6 +234,9 @@ function renderCats() {
 $('catList').onclick = (e) => {
   const ed = e.target.closest('[data-edcat]');
   if (ed) { e.stopPropagation(); return editCat(ed.dataset.edcat); }
+  const sub = e.target.closest('[data-subcat]'); if (sub) { e.stopPropagation(); return addSubCat(sub.dataset.subcat); }
+  const tog = e.target.closest('[data-cattog]');
+  if (tog) { e.stopPropagation(); const k = tog.dataset.cattog; L.catClosed.has(k) ? L.catClosed.delete(k) : L.catClosed.add(k); store.set('catClosed', [...L.catClosed]); return renderCats(); }
   const li = e.target.closest('li'); if (!li) return;
   L.cat = li.dataset.c; L.xschool = ''; renderLib();
 };
@@ -235,6 +253,30 @@ $('catAdd').onsubmit = async (e) => {
   $('catCode').value = ''; $('catTitle').value = ''; $('catAdd').hidden = true;
   L.cat = code; renderLib(); toast(`카테고리 ${code}를 만들었어요.`);
 };
+function addSubCat(parent) {
+  const p = D.cats.find((c) => c.code === parent); if (!p) return;
+  openModal(`
+    <div class="mh"><h3>하위 카테고리 추가</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <p class="small" style="margin:0 0 10px">상위: <b>${esc(p.code)}</b> ${esc(p.title || '')}</p>
+      <label>번호<input id="scCode" maxlength="20" value="${esc(p.code)}-" placeholder="예: ${esc(p.code)}-1"></label>
+      <label>이름 <span class="small">(선택)</span><input id="scTitle" maxlength="40" placeholder="예: 관계대명사 what"></label>
+    </div>
+    <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="scGo">추가</button></div>`, 'sm');
+  setTimeout(() => { const i = $('scCode'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 30);
+  const go = async () => {
+    const code = $('scCode').value.trim(), title = $('scTitle').value.trim();
+    if (!code || code === p.code + '-') return toast('번호를 적어 주세요.', true);
+    if (D.cats.some((c) => c.code === code)) return toast('이미 있는 번호예요.', true);
+    const { data, error } = await sb.from('drill_categories').insert({ code, title: title || null, parent: p.code }).select().single();
+    if (error) return toast(errText(error), true);
+    D.cats.push(data); D.cats.sort((a, b) => natural(a.code, b.code));
+    L.catClosed.delete(p.code); store.set('catClosed', [...L.catClosed]);
+    closeModal(); L.cat = code; renderLib(); toast(`${p.code} 아래에 ${code}를 만들었어요.`);
+  };
+  $('scGo').onclick = go;
+  ['scCode', 'scTitle'].forEach((id) => { $(id).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }; });
+}
 async function addCategoryInline(code, title) {
   if (!code || D.cats.some((c) => c.code === code)) return true;
   const { data, error } = await sb.from('drill_categories').insert({ code, title: title || null }).select().single();
@@ -249,16 +291,19 @@ function editCat(code) {
     <div class="mb">
       <label>번호<input id="ecCode" value="${esc(c.code)}" maxlength="20"></label>
       <label>이름<input id="ecTitle" value="${esc(c.title || '')}" maxlength="40"></label>
-      <p class="hint">삭제하면 이 카테고리의 문장은 지워지지 않고 '미분류'로 옮겨져요.</p>
+      <label>상위 카테고리<select id="ecParent"><option value="">없음 (맨 위)</option>${catTree().filter(({ c: x }) => !catDesc(code).has(x.code)).map(({ c: x, d }) => `<option value="${esc(x.code)}" ${x.code === c.parent ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(x.code)} ${esc(x.title || '')}</option>`).join('')}</select></label>
+      <p class="hint">삭제하면 이 카테고리의 문장은 지워지지 않고 '미분류'로 옮겨져요. 하위 카테고리는 한 단계 위로 올라가요.</p>
     </div>
     <div class="mf"><button class="btn danger" id="ecDel">삭제</button><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="ecSave">저장</button></div>`, 'sm');
   $('ecSave').onclick = async () => {
     const nc = $('ecCode').value.trim(), nt = $('ecTitle').value.trim();
     if (!nc) return;
     if (nc !== code && D.cats.some((x) => x.code === nc)) return toast('이미 있는 번호예요.', true);
-    const { error } = await sb.from('drill_categories').update({ code: nc, title: nt || null }).eq('code', code);
+    const np = $('ecParent').value || null;
+    const { error } = await sb.from('drill_categories').update({ code: nc, title: nt || null, parent: np }).eq('code', code);
     if (error) return toast(errText(error), true);
-    c.code = nc; c.title = nt || null;
+    c.code = nc; c.title = nt || null; c.parent = np;
+    D.cats.forEach((x) => { if (x.parent === code) x.parent = nc; });
     D.sents.forEach((s) => { if (s.category === code) s.category = nc; });
     D.cats.sort((a, b) => natural(a.code, b.code)); sortSents(D.sents);
     if (L.cat === code) L.cat = nc;
@@ -269,6 +314,7 @@ function editCat(code) {
     const { error } = await sb.from('drill_categories').delete().eq('code', code);
     if (error) return toast(errText(error), true);
     D.cats = D.cats.filter((x) => x.code !== code);
+    D.cats.forEach((x) => { if (x.parent === code) x.parent = null; });
     D.sents.forEach((s) => { if (s.category === code) s.category = null; });
     sortSents(D.sents); if (L.cat === code) L.cat = '';
     renderLib();
@@ -277,8 +323,9 @@ function editCat(code) {
 
 function filtered() {
   const q = L.q.toLowerCase();
+  const catSet = L.cat && L.cat !== '__none' ? catDesc(L.cat) : null;
   return D.sents.filter((s) => {
-    if (L.cat === '__none' ? s.category : (L.cat && s.category !== L.cat)) return false;
+    if (L.cat === '__none' ? s.category : (L.cat && !catSet.has(s.category))) return false;
     if (L.star && !s.starred) return false;
     if (L.tag && !(s.tags || []).includes(L.tag)) return false;
     if (L.src && srcGroup(s) !== L.src) return false;
@@ -324,7 +371,7 @@ function sentHtml(s, no) {
   const a = audioState(s);
   const xv = L.onlyExam && editX(), it = xv ? xItem(xv.id, s.id) : null;
   const xsets = xItemsOfSent(s.id).map((x) => examById(x.set_id)).filter(Boolean);
-  const canMove = !xv && !L.xschool && !L.onlyLesson && L.cat && L.cat !== '__none' && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
+  const canMove = !xv && !L.xschool && !L.onlyLesson && L.cat && L.cat !== '__none' && !catKids(L.cat).length && !L.q && !L.tag && !L.star && !L.audio && !L.src && !L.author;
   return `<div class="sent ${L.sel.has(s.id) ? 'sel' : ''}" data-id="${s.id}">
     <input type="checkbox" data-a="sel" ${L.sel.has(s.id) ? 'checked' : ''} aria-label="선택">
     <div class="no">${no}</div>
@@ -520,7 +567,7 @@ function checkDraft(d) {
 function openEditor(s) {
   const isNew = !s;
   let drafts = isNew ? [] : [draftFrom(s)];
-  const catOpts = (sel) => `<option value="">미분류</option>${D.cats.map((c) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${esc(c.code)} ${esc(c.title || '')}</option>`).join('')}<option value="__new">+ 새 카테고리…</option>`;
+  const catOpts = (sel) => `<option value="">미분류</option>${catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(c.code)} ${esc(c.title || '')}</option>`).join('')}<option value="__new">+ 새 카테고리…</option>`;
   const defCat = s ? (s.category || '') : (L.cat && L.cat !== '__none' ? L.cat : (store.get('lastCat', '') || ''));
   openModal(`
     <div class="mh"><h3>${isNew ? '새 문장 추가' : '문장 수정'}</h3><button class="icon" data-close>✕</button></div>
@@ -753,8 +800,8 @@ function openEditor(s) {
         const { data, error } = await sb.from('drill_sentences').insert(rows).select();
         if (error) throw error;
         D.sents.push(...data); data.forEach((r) => toTts.push(r.id));
-        if (editL()) await addToLesson(data.map((r) => r.id), true);
-        if (editX()) await addToExam(data.map((r) => r.id), true);
+        if (editL() && L.lessonAdd) await addToLesson(data.map((r) => r.id), true);
+        if (editX() && L.examAdd) await addToExam(data.map((r) => r.id), true);
       } else {
         const d = drafts[0], r = checked[0];
         const changed = JSON.stringify(r.chunks) !== JSON.stringify(chunksOf(s).map((c) => ({ en: c.en, ko: c.ko || '' })));
@@ -1011,8 +1058,10 @@ $('plSave').onclick = () => {
 /* ---------- 새 수업: 반·날짜를 먼저 정하고 그날 문장을 모아 올리기 ---------- */
 function kstToday() { return new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10); }
 function editL() { return (L.lesson && D.lessons.find((l) => l.id === L.lesson)) || null; }
-function setEditLesson(id) {
+// 수업을 누르면 '보기'가 기본. 새 문장을 넣는 건 스위치(add)를 켰을 때만. 수업·내신 스위치는 하나만 켜짐
+function setEditLesson(id, add) {
   L.lesson = id || null; store.set('editLesson', L.lesson);
+  L.lessonAdd = !!(id && add); if (L.lessonAdd) L.examAdd = false;
   if (!id) L.onlyLesson = false;
   renderLib();
 }
@@ -1039,12 +1088,14 @@ function renderLessonBar() {
   if (!l) { bar.hidden = true; return; }
   const d = new Date(l.lesson_date + 'T00:00:00'), n = (l.items || []).length;
   bar.hidden = false;
-  bar.innerHTML = `<div class="lb-t"><span class="lb-k">편집 중인 수업</span><b>${d.getMonth() + 1}/${d.getDate()} · ${esc(l.class_name || '반 지정 안 함')}</b><span class="lb-s">${esc(l.title)} · ${n}문장</span>
+  bar.classList.toggle('view', !L.lessonAdd);
+  bar.innerHTML = `<div class="lb-t"><span class="lb-k">${L.lessonAdd ? '편집 중인 수업' : '보는 중인 수업'}</span><b>${d.getMonth() + 1}/${d.getDate()} · ${esc(l.class_name || '반 지정 안 함')}</b><span class="lb-s">${esc(l.title)} · ${n}문장</span>
       <span class="lb-p ${l.published ? 'on' : ''}">${l.published ? 'ECHO 공개 중' : l.class_code ? 'ECHO 공개 전' : ''}</span></div>
     <div class="lb-a"><button class="btn sm ${L.onlyLesson ? 'primary' : ''}" id="lbOnly" aria-pressed="${L.onlyLesson}">이 수업 문장만 보기</button>
       ${l.class_code ? `<button class="btn sm" id="lbPub">${l.published ? '공개 내리기' : '학생에게 공개'}</button>` : ''}
-      <button class="btn sm" id="lbOpen">수업 화면에서 열기</button><button class="btn ghost sm" id="lbEdit">수업 정보</button><button class="btn ghost sm" id="lbEnd">편집 끝내기</button></div>
-    <p class="lb-h">이제 <b>+ 새 문장</b>으로 올리는 문장은 이 수업에 바로 들어가요. 있던 문장은 체크한 뒤 <b>이 수업에 넣기</b>.</p>`;
+      <button class="btn sm" id="lbOpen">수업 화면에서 열기</button><button class="btn ghost sm" id="lbEdit">수업 정보</button><button class="btn ghost sm" id="lbEnd">닫기</button></div>
+    <label class="addsw"><input type="checkbox" id="lbAdd" ${L.lessonAdd ? 'checked' : ''}><span class="sw"></span><span>새 문장을 이 수업에 넣기</span><small>${L.lessonAdd ? '켜짐 — + 새 문장으로 올리면 이 수업에 바로 들어가요' : '꺼짐 — 보기만 해요. 있던 문장은 체크한 뒤 이 수업에 넣기로 넣을 수 있어요'}</small></label>`;
+  $('lbAdd').onchange = (e) => { L.lessonAdd = e.target.checked; if (L.lessonAdd) L.examAdd = false; renderLib(); };
   $('lbOnly').onclick = () => { L.onlyLesson = !L.onlyLesson; renderLib(); };
   $('lbEnd').onclick = () => setEditLesson(null);
   $('lbEdit').onclick = () => openNewLesson(l);
@@ -1075,7 +1126,7 @@ function openNewLesson(edit) {
     const cur = edit ? (edit.class_code || '') : store.get('lastEchoClass', '');
     sel.innerHTML = '<option value="">반 지정 안 함 (선생님만)</option>' + list.map((c) => `<option value="${esc(c.code)}" ${c.code === cur ? 'selected' : ''}>${esc(c.name)}</option>`).join('');
   });
-  document.querySelectorAll('[data-nl]').forEach((b) => { b.onclick = () => { closeModal(); setEditLesson(b.dataset.nl); toast('이 수업을 이어서 편집해요.'); }; });
+  document.querySelectorAll('[data-nl]').forEach((b) => { b.onclick = () => { closeModal(); L.onlyLesson = true; setEditLesson(b.dataset.nl, true); toast('이 수업을 이어서 편집해요. 새 문장이 이 수업에 들어가요.'); }; });
   $('nlGo').onclick = async () => {
     const code = $('nlClass').value, cls = (HUB_CLASSES || []).find((c) => c.code === code);
     const date = $('nlDate').value || kstToday();
@@ -1091,7 +1142,7 @@ function openNewLesson(edit) {
     const { data, error } = await sb.from('drill_lessons').insert(row).select().single();
     if (error) return toast(errText(error), true);
     D.lessons.unshift(data); D.lessons.sort((a, b) => String(b.lesson_date).localeCompare(String(a.lesson_date)));
-    closeModal(); L.onlyLesson = true; setEditLesson(data.id);
+    closeModal(); L.onlyLesson = true; setEditLesson(data.id, true);
     toast('수업을 만들었어요. 이제 + 새 문장으로 올리면 이 수업에 바로 들어가요.');
     openEditor(null);
   };
@@ -1109,7 +1160,7 @@ function renderLessonSide() {
   if (cur && !shown.includes(cur)) shown = [...shown, cur];   // 편집 중인 수업은 접혀 있어도 보이게
   $('lessonSide').innerHTML = shown.map((l) => {
     const d = new Date(l.lesson_date + 'T00:00:00');
-    return `<li class="${L.lesson === l.id ? 'on' : ''}" data-l="${l.id}" title="${esc(l.title)}"><span class="ttl"><b>${d.getMonth() + 1}/${d.getDate()}</b> ${esc(l.class_name || '반 없음')}<small>${esc(l.title)}</small></span><span class="n">${(l.items || []).length}${l.published ? '<i class="pub" title="ECHO 공개 중">●</i>' : ''}</span></li>`;
+    return `<li class="${L.lesson === l.id ? 'on' : ''}" data-l="${l.id}" title="${esc(l.title)}"><span class="ttl"><span class="l1"><b>${d.getMonth() + 1}/${d.getDate()}</b> · ${esc(l.class_name || '반 없음')}</span><small>${esc(l.title)}</small></span><span class="n">${(l.items || []).length}${l.published ? '<i class="pub" title="ECHO 공개 중">●</i>' : ''}</span></li>`;
   }).join('') + (!q && list.length > LIMIT ? `<li class="more" data-more="1">${L.lmore ? '▴ 지난 수업 접기' : `▾ 지난 수업 더보기 (${list.length - LIMIT}개)`}</li>` : '') + (!list.length ? `<li class="empty">${q ? '찾는 수업이 없어요' : '아직 저장한 수업이 없어요'}</li>` : '');
 }
 $('lessonQ').oninput = (e) => { L.lq = e.target.value; renderLessonSide(); };
@@ -1139,8 +1190,9 @@ function sortExams(a) {
 function xItemsOf(setId) { return D.xitems.filter((x) => x.set_id === setId).sort((a, b) => a.position - b.position); }
 function xItem(setId, sid) { return D.xitems.find((x) => x.set_id === setId && x.sentence_id === sid) || null; }
 function xItemsOfSent(sid) { return D.xitems.filter((x) => x.sentence_id === sid); }
-function setEditExam(id, only) {
+function setEditExam(id, only, add) {
   L.exam = id || null; store.set('editExam', L.exam);
+  L.examAdd = !!(id && add); if (L.examAdd) L.lessonAdd = false;
   if (id && examById(id)) { L.xopen.add(examById(id).school); store.set('xopen', [...L.xopen]); }
   L.onlyExam = !!(id && only); if (id) L.xschool = '';
   renderLib();
@@ -1215,7 +1267,7 @@ function openAddRange(key) {
     const { data, error } = await sb.from('drill_exam_sets').insert(row).select().single();
     if (error) return toast(errText(error), true);
     D.exams = sortExams([...D.exams, data]);
-    closeModal(); setEditExam(data.id, false);
+    closeModal(); setEditExam(data.id, false, true);
     toast(`"${name}" 범위를 추가했어요. 있던 문장은 체크해서 넣고, 새 문장은 + 새 문장으로 올리면 바로 들어가요.`);
   };
   $('arGo').onclick = go;
@@ -1351,15 +1403,17 @@ function renderExamBar() {
   const n = xItemsOf(x.id).length;
   bar.hidden = false;
   // 타이틀: 시험 / 부제: 범위(세트 이름) / 그 아래: 시험범위 기록
-  bar.innerHTML = `<div class="xb-head"><span class="lb-k">편집 중인 내신 세트</span>
+  bar.classList.toggle('view', !L.examAdd);
+  bar.innerHTML = `<div class="xb-head"><span class="lb-k">${L.examAdd ? '편집 중인 내신 세트' : '보는 중인 내신 세트'}</span>
       <div class="xb-title">${esc(examTitle(x))}</div>
       <div class="xb-sub"><b>${x.name ? esc(x.name) : '시험 전체'}</b><span class="lb-s">${n}문장</span>
         <span class="lb-p ${x.published ? 'on' : ''}">${x.published ? `ECHO 공개 중 · ${esc(x.class_name || x.class_code)}` : x.class_code ? `ECHO 공개 전 · ${esc(x.class_name || x.class_code)}` : ''}</span></div>
       ${x.scope ? `<div class="xb-tags" title="시험범위 (참고)">${scopeTags(x.scope).map((t) => `<span>#${esc(t)}</span>`).join('')}</div>` : ''}</div>
     <div class="lb-a"><button class="btn sm ${L.onlyExam ? 'primary' : ''}" id="xbOnly" aria-pressed="${L.onlyExam}">이 세트 문장만 보기</button>
       ${x.class_code ? `<button class="btn sm" id="xbPub">${x.published ? '공개 내리기' : '학생에게 공개'}</button>` : ''}
-      <button class="btn sm" id="xbOpen">수업 화면에서 열기</button><button class="btn sm" id="xbCopy" title="문장·순서·서술형 정보를 그대로 다른 학교(시험) 세트로">다른 학교로 복사</button><button class="btn ghost sm" id="xbEdit">세트 정보</button><button class="btn ghost sm" id="xbEnd">편집 끝내기</button></div>
-    <p class="lb-h">+ 새 문장으로 올리는 문장은 이 세트에 바로 들어가요. 있던 문장은 체크한 뒤 <b>이 세트에 넣기</b>. 세트 안 문장의 <b>✍</b>로 서술형 유형·핵심 포인트·출제 가능성을 적어요.</p>`;
+      <button class="btn sm" id="xbOpen">수업 화면에서 열기</button><button class="btn sm" id="xbCopy" title="문장·순서·서술형 정보를 그대로 다른 학교(시험) 세트로">다른 학교로 복사</button><button class="btn ghost sm" id="xbEdit">세트 정보</button><button class="btn ghost sm" id="xbEnd">닫기</button></div>
+    <label class="addsw"><input type="checkbox" id="xbAdd" ${L.examAdd ? 'checked' : ''}><span class="sw"></span><span>새 문장을 이 세트에 넣기</span><small>${L.examAdd ? '켜짐 — + 새 문장으로 올리면 이 세트에 바로 들어가요' : '꺼짐 — 보기만 해요. 있던 문장은 체크한 뒤 이 세트에 넣기로 넣을 수 있어요'} · 문장의 ✍로 서술형 정보를 적어요</small></label>`;
+  $('xbAdd').onchange = (e) => { L.examAdd = e.target.checked; if (L.examAdd) L.lessonAdd = false; renderLib(); };
   $('xbOnly').onclick = () => { L.onlyExam = !L.onlyExam; renderLib(); };
   $('xbEnd').onclick = () => setEditExam(null);
   $('xbEdit').onclick = () => openExamSet(x);
@@ -1493,7 +1547,7 @@ function openExamSet(edit) {
     const { data, error } = await sb.from('drill_exam_sets').insert(row).select().single();
     if (error) return toast(errText(error), true);
     D.exams = sortExams([...D.exams, data]);
-    closeModal(); setEditExam(data.id, false);
+    closeModal(); setEditExam(data.id, false, true);
     toast('세트를 만들었어요. 있던 문장은 체크해서 넣고, 새 문장은 + 새 문장으로 올리면 바로 들어가요.');
   };
 }
