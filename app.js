@@ -806,12 +806,12 @@ const V = { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 };
 const resetV = () => Object.assign(V, { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 });
 const curSent = () => byId(C.list[C.idx]);
 const saveOpts = () => store.set('opts', O);
-function saveClass() { store.set('class', { list: C.list, idx: C.idx, lessonId: C.lessonId, lessonTitle: C.lessonTitle, examId: C.examId }); }
+function saveClass() { store.set('class', { list: C.list, idx: C.idx, lessonId: C.lessonId, lessonTitle: C.lessonTitle, examId: C.examId, examIds: C.examIds || null }); }
 function restoreClass() {
   const c = store.get('class', null);
   if (c && Array.isArray(c.list)) {
     C.list = c.list.filter((id) => byId(id)); C.idx = Math.min(c.idx || 0, Math.max(0, C.list.length - 1));
-    C.lessonId = c.lessonId || null; C.lessonTitle = c.lessonTitle || ''; C.examId = c.examId || null;
+    C.lessonId = c.lessonId || null; C.lessonTitle = c.lessonTitle || ''; C.examId = c.examId || null; C.examIds = c.examIds || null;
   }
   syncControls();
 }
@@ -820,7 +820,7 @@ function addToPlaylist(ids, how) {
   if (!ids.length) return toast('넣을 문장이 없어요.', true);
   const go = (replace) => {
     stop();
-    if (replace) { C.list = [...ids]; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; C.examId = null; }
+    if (replace) { C.list = [...ids]; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; C.examId = null; C.examIds = null; }
     else { const set = new Set(C.list); ids.forEach((id) => { if (!set.has(id)) C.list.push(id); }); }
     saveClass(); L.sel.clear(); renderLib(); renderPl(); renderStage(); switchTab('class');
     toast(`수업 목록 ${C.list.length}문장`);
@@ -864,9 +864,10 @@ $('plList').onclick = (e) => {
 $('plClear').onclick = async () => {
   if (!C.list.length) return;
   if (!await confirmBox('수업 목록 비우기', '수업 목록을 비울까요? 문장과 저장된 수업 기록은 그대로 남아요.', '비우기')) return;
-  stop(); C.list = []; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; C.examId = null; saveClass(); renderPl(); renderStage();
+  stop(); C.list = []; C.idx = 0; C.lessonId = null; C.lessonTitle = ''; C.examId = null; C.examIds = null; saveClass(); renderPl(); renderStage();
 };
 $('plLoad').onclick = () => openLoader();
+const LX = { open: new Set(), chk: new Set() };   // 불러오기 창의 내신: 펼친 시험, 체크한 범위
 function openLoader() {
   const catN = (code) => D.sents.filter((s) => s.category === code).length;
   const starN = D.sents.filter((s) => s.starred).length;
@@ -897,21 +898,42 @@ function openLoader() {
     $('ldLsN').textContent = words().length ? `${ls.length}개 찾음` : `전체 ${ls.length}개`;
     $('ldLessons').innerHTML = ls.map((l) => `<li><span class="d">${esc(l.lesson_date)}</span><span class="t">${esc(l.title || '(제목 없음)')}${l.class_name ? ` <span class="small">${esc(l.class_name)}</span>` : ''}${l.published ? ` <span class="tag src">ECHO</span>` : ''}</span><span class="c">${l.items.filter((id) => byId(id)).length}문장</span>
           <button class="btn sm" data-ls="${l.id}">불러오기</button><button class="icon" data-lsdel="${l.id}" title="기록 삭제">✕</button></li>`).join('') || `<li><span class="small">${words().length ? '찾는 수업 기록이 없어요.' : '아직 저장한 수업 기록이 없어요. 수업 목록을 만든 뒤 \'수업 기록 저장\'을 누르세요.'}</span></li>`;
-    const xs = D.exams.filter((x) => hit(`${examLabel(x)} ${x.scope || ''} ${x.class_name || ''}`));
-    $('ldExams').innerHTML = xs.map((x) => { const n = xItemsOf(x.id).filter((it) => byId(it.sentence_id)).length;
-      return `<li><span class="d">${esc(x.school)}</span><span class="t">${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}${x.name ? ` <b class="ld-x">↳ ${esc(x.name)}</b>` : ''}${x.published ? ` <span class="tag src">ECHO</span>` : ''}</span><span class="c">${n}문장</span><button class="btn sm" data-lx="${x.id}" ${n ? '' : 'disabled'}>불러오기</button></li>`; }).join('')
-      || `<li><span class="small">${words().length ? '찾는 내신 세트가 없어요.' : '아직 만든 내신 세트가 없어요. 문장 관리 왼쪽 내신에서 + 세트로 만들어요.'}</span></li>`;
+    // 시험별로 묶고, 누르면 그 아래 범위가 펼쳐짐 → 상자에 체크해서 여러 범위를 한 번에 불러오기
+    const groups = new Map();
+    D.exams.forEach((x) => { if (!hit(`${examLabel(x)} ${x.scope || ''} ${x.class_name || ''}`)) return; const k = examKey(x); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
+    const nOf = (x) => xItemsOf(x.id).filter((it) => byId(it.sentence_id)).length;
+    $('ldExams').innerHTML = [...groups].map(([k, gs]) => {
+      const g = gs[0], open = LX.open.has(k) || words().length > 0, picked = gs.filter((x) => LX.chk.has(x.id));
+      return `<li class="lx-g ${open ? 'open' : ''}" data-lxg="${esc(k)}"><span class="car">${open ? '▾' : '▸'}</span><span class="lx-school">${esc(g.school)}</span><span class="lx-exam">${g.grade}학년 ${g.year} ${g.term}학기 ${EXAM_NAME[g.exam]}고사</span><span class="c">범위 ${gs.length}개</span></li>`
+        + (open ? gs.map((x) => { const n = nOf(x);
+          return `<li class="lx-r ${LX.chk.has(x.id) ? 'on' : ''}"><label><input type="checkbox" data-lxc="${x.id}" ${LX.chk.has(x.id) ? 'checked' : ''} ${n ? '' : 'disabled'}><span class="tree">↳</span><span class="lx-name">${x.name ? esc(x.name) : '시험 전체'}</span>${x.published ? '<span class="tag src">ECHO</span>' : ''}<span class="c">${n}문장</span></label></li>`; }).join('')
+          + `<li class="lx-go"><button class="btn ghost sm" data-lxall="${esc(k)}">${gs.every((x) => LX.chk.has(x.id) || !nOf(x)) ? '선택 해제' : '전체 선택'}</button><button class="btn primary sm" data-lxload="${esc(k)}" ${picked.length ? '' : 'disabled'}>선택한 범위 불러오기${picked.length ? ` (${picked.length})` : ''}</button></li>` : '');
+    }).join('') || `<li><span class="small">${words().length ? '찾는 내신 세트가 없어요.' : '아직 만든 내신 세트가 없어요. 문장 관리 왼쪽 내신에서 + 세트로 만들어요.'}</span></li>`;
   };
   fill(); $('ldQ').oninput = fill; setTimeout(() => $('ldQ') && $('ldQ').focus(), 30);
+  $('ldExams').onchange = (e) => { const c = e.target.closest('[data-lxc]'); if (!c) return; c.checked ? LX.chk.add(c.dataset.lxc) : LX.chk.delete(c.dataset.lxc); fill(); };
   $('mbox').onclick = async (e) => {
     const append = $('ldAppend') && $('ldAppend').checked;
-    const b = e.target.closest('[data-cat],[data-all],[data-ls],[data-lsdel],[data-lx]'); if (!b) return;
-    if (b.dataset.lx) {
-      const x = examById(b.dataset.lx), ids = xItemsOf(x.id).map((it) => it.sentence_id).filter((id) => byId(id));
+    if (e.target.closest('label') && e.target.closest('#ldExams')) return;   // 체크 상자는 change에서
+    const b = e.target.closest('[data-cat],[data-all],[data-ls],[data-lsdel],[data-lxg],[data-lxall],[data-lxload]'); if (!b) return;
+    if (b.dataset.lxg) { LX.open.has(b.dataset.lxg) ? LX.open.delete(b.dataset.lxg) : LX.open.add(b.dataset.lxg); return fill(); }
+    if (b.dataset.lxall) {
+      const gs = D.exams.filter((x) => examKey(x) === b.dataset.lxall && xItemsOf(x.id).some((it) => byId(it.sentence_id)));
+      const all = gs.every((x) => LX.chk.has(x.id)); gs.forEach((x) => all ? LX.chk.delete(x.id) : LX.chk.add(x.id)); return fill();
+    }
+    if (b.dataset.lxload) {
+      const gs = D.exams.filter((x) => examKey(x) === b.dataset.lxload && LX.chk.has(x.id));
+      const seen = new Set(), ids = [];
+      gs.forEach((x) => xItemsOf(x.id).forEach((it) => { if (byId(it.sentence_id) && !seen.has(it.sentence_id)) { seen.add(it.sentence_id); ids.push(it.sentence_id); } }));
       if (!ids.length) return toast('문장이 없어요.', true);
       $('mbox').onclick = null; closeModal();
       addToPlaylist(ids, append ? 'add' : 'replace');
-      if (!append) { C.lessonId = null; C.examId = x.id; C.lessonTitle = examLabel(x); saveClass(); renderPl(); }
+      if (!append) {
+        C.lessonId = null; C.examId = gs[0].id; C.examIds = gs.map((x) => x.id);
+        C.lessonTitle = gs.length === 1 ? examLabel(gs[0]) : `${examTitle(gs[0])} · ${gs.map((x) => x.name || '시험 전체').join(' + ')}`;
+        saveClass(); renderPl();
+      }
+      gs.forEach((x) => LX.chk.delete(x.id));
       return;
     }
     let ids = [], lesson = null;
@@ -932,7 +954,7 @@ function openLoader() {
     if (!ids.length) return toast('문장이 없어요.', true);
     $('mbox').onclick = null; closeModal();
     addToPlaylist(ids, append ? 'add' : 'replace');
-    if (lesson && !append) { C.examId = null; C.lessonId = lesson.id; C.lessonTitle = `${lesson.lesson_date} ${lesson.title}`; saveClass(); renderPl(); }
+    if (lesson && !append) { C.examId = null; C.examIds = null; C.lessonId = lesson.id; C.lessonTitle = `${lesson.lesson_date} ${lesson.title}`; saveClass(); renderPl(); }
   };
 }
 // 허브 반 목록 (ECHO 공개용) — echo 함수가 허브에서 읽어 옴
@@ -1028,7 +1050,7 @@ function renderLessonBar() {
   $('lbEdit').onclick = () => openNewLesson(l);
   $('lbOpen').onclick = () => {
     if (!n) return toast('아직 이 수업에 문장이 없어요.', true);
-    stop(); C.list = [...l.items]; C.idx = 0; C.examId = null; C.lessonId = l.id; C.lessonTitle = `${l.lesson_date} ${l.title}`; saveClass(); renderPl(); renderStage(); switchTab('class');
+    stop(); C.list = [...l.items]; C.idx = 0; C.examId = null; C.examIds = null; C.lessonId = l.id; C.lessonTitle = `${l.lesson_date} ${l.title}`; saveClass(); renderPl(); renderStage(); switchTab('class');
   };
   if ($('lbPub')) $('lbPub').onclick = async () => {
     if (!l.published && !n) return toast('문장을 먼저 넣어 주세요.', true);
@@ -1345,7 +1367,7 @@ function renderExamBar() {
   $('xbOpen').onclick = () => {
     const ids = xItemsOf(x.id).map((it) => it.sentence_id).filter((id) => byId(id));
     if (!ids.length) return toast('아직 이 세트에 문장이 없어요.', true);
-    stop(); C.list = ids; C.idx = 0; C.lessonId = null; C.examId = x.id; C.lessonTitle = examLabel(x); saveClass(); renderPl(); renderStage(); switchTab('class');
+    stop(); C.list = ids; C.idx = 0; C.lessonId = null; C.examId = x.id; C.examIds = null; C.lessonTitle = examLabel(x); saveClass(); renderPl(); renderStage(); switchTab('class');
   };
   if ($('xbPub')) $('xbPub').onclick = async () => {
     if (!x.published && !n) return toast('문장을 먼저 넣어 주세요.', true);
@@ -1684,7 +1706,8 @@ function sayLabel(s, it) {
 }
 function sayText(i) {
   const s = byId(C.list[i]); if (!s) return '';
-  const lab = sayLabel(s, xItem(C.examId, s.id));
+  const it = (C.examIds && C.examIds.length ? C.examIds : [C.examId]).map((id) => xItem(id, s.id)).find(Boolean);
+  const lab = sayLabel(s, it);
   return lab ? `${i + 1}번. ${lab}${/지문$/.test(lab) ? '' : ' 지문'}.` : `${i + 1}번.`;
 }
 async function ensureSay() {
