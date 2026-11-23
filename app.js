@@ -1552,7 +1552,7 @@ function openXInfo(x, s) {
       <div class="xl-h">출제 예상 유형 <span class="small">(여러 개 고를 수 있어요)</span></div>
       <div class="xtypes">${XTYPES.map((t) => `<label class="chk"><input type="checkbox" value="${t}" ${(it.types || []).includes(t) ? 'checked' : ''}> ${t}</label>`).join('')}</div>
       <label>핵심 포인트<input id="xiPoint" maxlength="120" value="${esc(it.point || '')}" placeholder="예: what → the thing which 바꿔 쓰기 / 관계부사 where 생략 불가"></label>
-      <label>재생 전 읽어 줄 출처 <span class="small">— 비우면 문장 출처를 읽어요</span><input id="xiSay" maxlength="60" value="${esc(it.say_src || '')}" placeholder="${esc(sayLabel(s, null) || '예: 2026년 고이 9월 모의고사 29번')}"></label>
+      <label>수업 화면에 보여 줄 출처 <span class="small">— 비우면 문장 출처를 보여 줘요</span><input id="xiSay" maxlength="60" value="${esc(it.say_src || '')}" placeholder="${esc(srcLabel(s) || '예: 2026 고2 9월 모의고사 29번')}"></label>
       <p class="small" id="xiSayPrev" style="margin:-4px 0 12px"></p>
       <div class="xl-h">출제 가능성</div>
       <div class="xseg" id="xiLevel">${[0, 1, 2, 3].map((v) => `<button type="button" data-v="${v}" class="${(it.level || 0) === v ? 'on' : ''}">${v ? '★'.repeat(v) : '미정'}</button>`).join('')}</div>
@@ -1560,7 +1560,7 @@ function openXInfo(x, s) {
     <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="xiSave">저장</button></div>`, 'sm');
   let level = it.level || 0;
   const n = xItemsOf(x.id).findIndex((y) => y.sentence_id === s.id) + 1;
-  const prev = () => { const lab = $('xiSay').value.trim() || sayLabel(s, null); $('xiSayPrev').textContent = `🔊 "${n}번. ${lab ? lab + (/지문$/.test(lab) ? '' : ' 지문') : ''}." 라고 읽은 뒤 문장을 읽어요 (번호는 수업 목록 순서)`; };
+  const prev = () => { const lab = $('xiSay').value.trim() || srcLabel(s); $('xiSayPrev').textContent = lab ? `수업 화면 위쪽에 "${lab}"(으)로 보여요. 소리는 영어로 "Number ${n}."만 읽어요` : '출처가 없으면 화면에 표시하지 않아요'; };
   $('xiSay').oninput = prev; prev();
   $('xiLevel').onclick = (e) => { const b = e.target.closest('[data-v]'); if (!b) return; level = Number(b.dataset.v); $('xiLevel').querySelectorAll('button').forEach((y) => y.classList.toggle('on', y === b)); };
   $('xiSave').onclick = async () => {
@@ -1675,10 +1675,17 @@ function koVisible(k) {
   if (V.koHideFrom != null) return k < V.koHideFrom ? 'on' : 'off';
   return (O.mode === 'drill' || O.koView === 'show') ? 'on' : 'off';
 }
+// 내신 세트 수업에서 화면에 보여 줄 출처: 세트에 적은 출처(say_src) → 없으면 문장 출처
+function stageSrc(s) {
+  const it = (C.examIds && C.examIds.length ? C.examIds : [C.examId]).map((id) => xItem(id, s.id)).find(Boolean);
+  if (it && it.say_src) return it.say_src.trim();
+  return srcLabel(s) || s.source_label || '';
+}
 function renderStage() {
   const s = curSent();
   $('stNum').textContent = s ? `${C.idx + 1} / ${C.list.length}` : '–';
-  $('stMeta').innerHTML = s ? `${s.category ? `<span class="tag cat">${esc(catFull(s.category))}</span>` : ''}${s.source_label ? `<span class="tag">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
+  const xsrc = s && C.examId ? stageSrc(s) : '';
+  $('stMeta').innerHTML = s ? `${xsrc ? `<span class="tag xsrc" title="출처">${esc(xsrc)}</span>` : ''}${s.category ? `<span class="tag cat">${esc(catFull(s.category))}</span>` : ''}${s.source_label && s.source_label !== xsrc ? `<span class="tag">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
   setStateText();
   if (!s) {
     $('stChunks').innerHTML = '<div class="empty-stage">왼쪽 <b>불러오기</b>에서 카테고리나 수업 기록을 고르거나,<br>문장 관리에서 문장을 골라 수업 목록에 넣으세요.</div>';
@@ -1887,7 +1894,8 @@ async function playSentence(s, mode, tok) {
   if (needKo && !koUrl) { toast('이 문장은 우리말 음성이 없어 끊어듣기로 재생해요. ↻로 음성을 다시 만들어 주세요.', true); mode = 'chunk'; }
   if (tok !== P.tok) return false;
   const full = async () => { V.cur = -1; drawChunks(); return seg(P.en, enUrl, 0, null, O.speed, tok); };
-  if (!await (C.examId && D.say ? playSay(C.idx, tok) : playNumber(C.idx + 1, tok))) return false;   // 항상 번호부터 (내신 세트는 '1번, ○○ 29번 지문')
+  // 모든 수업: 영어 성우가 "Number 1." 하고 시작. 내신 세트의 출처는 소리 없이 화면에만 보여 줌
+  if (!await playNumber(C.idx + 1, tok)) return false;
   for (let r = 0; r < (O.rep || 1); r++) {
     if (r > 0 && !await wait(800, tok)) return false;
     resetV(); drawChunks();
@@ -1929,7 +1937,7 @@ async function run() {
   const tok = ++P.tok;
   setPlaying(true);
   try {
-    if (C.examId && examById(C.examId)) { if (!await ensureSay()) await ensureNumbers(); } else await ensureNumbers();
+    await ensureNumbers();
     if (tok !== P.tok) return;
     setStateText();
     for (;;) {
