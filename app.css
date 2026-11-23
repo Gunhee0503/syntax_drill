@@ -359,3 +359,21 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .exambar .xb-scope i{color:var(--ink3);font-style:normal}
 .exambar .lb-a{align-self:flex-start}
 .examlist li.xg .ttl{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.35}
+/* 하위 범위: 색·꺾인 화살표로 표시, 마우스를 올리면 복사·삭제 */
+.examlist li.xset{padding-left:26px;border-left:2px solid #c9dbef;margin-left:22px;border-radius:0 9px 9px 0;background:#f3f7fc}
+.examlist li.xset + li.xset{margin-top:2px}
+.examlist li.xset .tree{color:#7fa3cc;font-size:13px;margin-left:-14px;width:12px;flex-shrink:0}
+.examlist li.xset .ttl{color:#2f5f93}
+.examlist li.xset.on{background:#dfeaf8;border-left-color:#2f5f93}
+.examlist li.xset.on .ttl{color:#1d4673;font-weight:700}
+.examlist .xacts{display:none;gap:2px;flex-shrink:0}
+.examlist li.xset:hover .xacts,.examlist li.xset:focus-within .xacts{display:flex}
+.examlist li.xset:hover .n{display:none}
+.examlist .xacts button{border:0;background:none;width:24px;height:24px;border-radius:6px;cursor:pointer;color:#5a7ea8;font-size:13px;line-height:1}
+.examlist .xacts button:hover{background:#cfdff3;color:#1d4673}
+.examlist .xacts button[data-xdel]:hover{background:#f6dcdc;color:#b03a3a}
+.examlist li.xset.dragging{opacity:.45}
+.examlist li.drop{outline:2px dashed #2f5f93;outline-offset:-2px;background:#e6eef9}
+.examlist li.xg{margin-top:6px}
+.exambar .xb-tags{display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:3px;font-size:12px;line-height:1.5}
+.exambar .xb-tags span{color:#4f7bb0;font-weight:500;word-break:break-all}
