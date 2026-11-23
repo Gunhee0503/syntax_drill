@@ -1107,7 +1107,6 @@ function renderExamSide() {
     const open = L.xopen.has(n) || (editX() && editX().school === n);
     h += `<li class="xs ${sets.length ? '' : 'empty'} ${open ? 'open' : ''}" data-xs="${esc(n)}" aria-expanded="${open}"><span class="car">${sets.length ? (open ? '▾' : '▸') : ''}</span><span class="ttl">${esc(n)}</span><span class="n">${sets.length ? sets.length + '세트' : ''}</span></li>`;
     if (!open) continue;
-    if (sets.length > 1 || cnt) h += `<li class="xall ${L.xschool === n ? 'on' : ''}" data-xall="${esc(n)}"><span class="ttl">이 학교 문장 모두 보기</span><span class="n">${cnt || ''}</span></li>`;
     // 시험(연도·학년·학기·중간/기말)별로 묶고, 그 아래에 범위(세트 이름)를 하위 항목으로
     const groups = new Map();
     for (const x of sets) { const k = examKey(x); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
