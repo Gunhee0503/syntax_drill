@@ -488,3 +488,6 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .group-h.sub{padding-left:14px;color:#a5700e}
 .group-h em{font-style:normal;font-weight:600;color:#9a917f;font-size:.9em}
 #catList .sub-n{font-style:normal;color:#b99a62;margin-left:2px;font-size:.92em}
+.selbar .xput{color:#1d4673;border-color:#c9dbef;background:#eef4fb}
+#ldExams li.lx-r .tag{font-size:10.5px;background:#e8eef6;color:#5a7ea8}
+#ldExams li.lx-r input:disabled + .tree{opacity:.5}

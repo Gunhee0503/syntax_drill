@@ -1479,16 +1479,57 @@ async function patchExam(x, patch) {
   D.exams = sortExams(D.exams.map((y) => (y.id === data.id ? data : y))); renderLib();
   return data;
 }
-async function addToExam(ids, quiet) {
-  const x = editX(); if (!x) return;
+async function addToExam(ids, quiet, setId) {
+  const x = setId ? examById(setId) : editX(); if (!x) return 0;
   let pos = Math.max(0, ...xItemsOf(x.id).map((it) => it.position));
   const rows = ids.filter((id) => !xItem(x.id, id)).map((id) => ({ set_id: x.id, sentence_id: id, position: ++pos }));
-  if (!rows.length) { if (!quiet) toast('이미 이 세트에 들어 있는 문장이에요.'); return; }
+  if (!rows.length) { if (!quiet) toast('이미 이 세트에 들어 있는 문장이에요.'); return 0; }
   const { data, error } = await sb.from('drill_exam_items').insert(rows).select();
-  if (error) return toast(errText(error), true);
+  if (error) { toast(errText(error), true); return 0; }
   D.xitems.push(...data);
   if (!quiet) toast(`이 세트에 ${rows.length}문장을 넣었어요. (모두 ${xItemsOf(x.id).length}문장)`);
   renderLib();
+  return rows.length;
+}
+/* 체크한 문장을 내신 주요구문 범위(여러 개 가능)에 넣기 — 문장은 카테고리에 그대로 두고 세트에 '담기만' 함 */
+function openPutToExams() {
+  const ids = D.sents.filter((s) => L.sel.has(s.id)).map((s) => s.id);
+  if (!ids.length) return;
+  if (!D.exams.length) return toast('아직 내신 세트가 없어요. 왼쪽 내신 주요구문의 + 세트로 먼저 만들어 주세요.', true);
+  const chk = new Set(), open = new Set();
+  if (editX()) open.add(examKey(editX()));
+  openModal(`
+    <div class="mh"><h3>내신 주요구문에 넣기</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <p class="small" style="margin:0 0 8px">체크한 <b>${ids.length}문장</b>을 넣을 범위를 골라요. 여러 범위에 한 번에 넣을 수 있어요. 문장은 지금 카테고리에도 그대로 남아요.</p>
+      <input id="pxQ" class="side-q" type="search" placeholder="학교·시험·범위 검색" autocomplete="off" style="margin-bottom:8px">
+      <ul class="lessons" id="ldExams"></ul>
+    </div>
+    <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="pxGo" disabled>넣기</button></div>`);
+  const words = () => $('pxQ').value.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (t) => { const w = words(), h = t.toLowerCase(); return w.every((x) => h.includes(x)); };
+  const fill = () => {
+    const groups = new Map();
+    D.exams.forEach((x) => { if (!hit(`${examLabel(x)} ${x.scope || ''} ${x.class_name || ''}`)) return; const k = examKey(x); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); });
+    const sorted = [...groups].sort((a, b) => natural(a[1][0].school, b[1][0].school) || (b[1][0].year - a[1][0].year));
+    const many = D.exams.length > 6;
+    $('ldExams').innerHTML = sorted.map(([k, gs]) => {
+      const g = gs[0], isOpen = open.has(k) || words().length > 0 || !many;
+      return `<li class="lx-g ${isOpen ? 'open' : ''}" data-pxg="${esc(k)}"><span class="car">${isOpen ? '▾' : '▸'}</span><span class="lx-school">${esc(g.school)}</span><span class="lx-exam">${g.grade}학년 ${g.year} ${g.term}학기 ${EXAM_NAME[g.exam]}고사</span><span class="c">범위 ${gs.length}개</span></li>`
+        + (isOpen ? gs.map((x) => { const have = ids.filter((id) => xItem(x.id, id)).length, all = have === ids.length;
+          return `<li class="lx-r ${chk.has(x.id) ? 'on' : ''}"><label><input type="checkbox" data-pxc="${x.id}" ${chk.has(x.id) ? 'checked' : ''} ${all ? 'disabled' : ''}><span class="tree">↳</span><span class="lx-name">${x.name ? esc(x.name) : '시험 전체'}</span>${all ? '<span class="tag">이미 다 들어 있음</span>' : have ? `<span class="tag">${have}개는 이미 있음</span>` : ''}<span class="c">${xItemsOf(x.id).length}문장</span></label></li>`; }).join('') : '');
+    }).join('') || '<li><span class="small">찾는 내신 세트가 없어요.</span></li>';
+    $('pxGo').disabled = !chk.size; $('pxGo').textContent = chk.size ? `${chk.size}개 범위에 넣기` : '넣기';
+  };
+  fill(); $('pxQ').oninput = fill; setTimeout(() => $('pxQ') && $('pxQ').focus(), 30);
+  $('ldExams').onchange = (e) => { const c = e.target.closest('[data-pxc]'); if (!c) return; c.checked ? chk.add(c.dataset.pxc) : chk.delete(c.dataset.pxc); fill(); };
+  $('mbox').onclick = (e) => { const g = e.target.closest('[data-pxg]'); if (!g) return; const k = g.dataset.pxg; open.has(k) ? open.delete(k) : open.add(k); fill(); };
+  $('pxGo').onclick = async () => {
+    $('pxGo').disabled = true; let n = 0; const names = [];
+    for (const id of chk) { const added = await addToExam(ids, true, id); n += added || 0; const x = examById(id); names.push(examShort ? examShort(x) : examLabel(x)); }
+    $('mbox').onclick = null; closeModal(); L.sel.clear(); renderLib();
+    toast(n ? `${chk.size}개 범위에 모두 ${n}문장을 넣었어요.` : '고른 범위에 이미 다 들어 있는 문장이에요.');
+  };
 }
 async function moveInExam(x, sid, dir) {
   const items = xItemsOf(x.id), i = items.findIndex((it) => it.sentence_id === sid), j = i + dir;
@@ -1596,6 +1637,7 @@ function openExamSet(edit) {
   };
 }
 $('examAddBtn').onclick = () => openExamSet(null);
+$('selToXsets').onclick = () => openPutToExams();
 $('selToExam').onclick = () => { addToExam(D.sents.filter((s) => L.sel.has(s.id)).map((s) => s.id)); L.sel.clear(); };
 $('selOutExam').onclick = async () => {
   const x = editX(); if (!x) return;
