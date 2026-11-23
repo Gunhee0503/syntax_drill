@@ -211,16 +211,26 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 const L = { lesson: store.get('editLesson', null), onlyLesson: false, lessonAdd: false, examAdd: false, catClosed: new Set(store.get('catClosed', [])), xgOpen: new Set(store.get('xgOpen', [])), lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
 
 /* 카테고리 트리: parent(상위 번호)로 묶음. 상위를 고르면 하위 문장까지 함께 보임 */
-function catKids(code) { return D.cats.filter((c) => c.parent === code).sort((a, b) => natural(a.code, b.code)); }
+// 하위 카테고리는 상위가 다르면 같은 번호(01, 02…)를 써도 됨: 화면엔 label, 내부 키는 code
+const catOf = (code) => D.cats.find((x) => x.code === code);
+const catLabel = (c) => (c ? (c.label || c.code) : '');
+const catName = (code) => { const c = catOf(code); return c ? catLabel(c) : (code || ''); };
+const catFull = (code) => { const c = catOf(code); if (!c) return code || ''; const p = c.parent && catOf(c.parent); return p ? `${catLabel(p)} › ${catLabel(c)}${c.label && c.title ? ' ' + c.title : ''}` : catLabel(c); };
+const byLabel = (a, b) => natural(catLabel(a), catLabel(b));
+function nextSubNo(parent) {
+  const nums = D.cats.filter((c) => c.parent === parent).map((c) => parseInt((catLabel(c).match(/^\d+/) || [])[0], 10)).filter((n) => !isNaN(n));
+  return String((nums.length ? Math.max(...nums) : 0) + 1).padStart(2, '0');
+}
+function catKids(code) { return D.cats.filter((c) => c.parent === code).sort(byLabel); }
 function catTree() {
   const has = new Set(D.cats.map((c) => c.code)), out = [], seen = new Set();
   const walk = (c, d) => { if (seen.has(c.code)) return; seen.add(c.code); out.push({ c, d }); catKids(c.code).forEach((k) => walk(k, d + 1)); };
-  D.cats.filter((c) => !c.parent || !has.has(c.parent)).sort((a, b) => natural(a.code, b.code)).forEach((c) => walk(c, 0));
+  D.cats.filter((c) => !c.parent || !has.has(c.parent)).sort(byLabel).forEach((c) => walk(c, 0));
   D.cats.forEach((c) => { if (!seen.has(c.code)) walk(c, 0); });
   return out;
 }
 function catOrder() { const m = new Map(); catTree().forEach(({ c }, i) => m.set(c.code, i)); return m; }
-const catOptTree = (sel) => catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(c.code)} ${esc(c.title || '')}</option>`).join('');
+const catOptTree = (sel) => catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(catLabel(c))} ${esc(c.title || '')}</option>`).join('');
 function catDesc(code) { const out = new Set([code]); let grew = true; while (grew) { grew = false; D.cats.forEach((c) => { if (c.parent && out.has(c.parent) && !out.has(c.code)) { out.add(c.code); grew = true; } }); } return out; }
 function renderCats() {
   const own = {}; D.sents.forEach((s) => { if (s.category) own[s.category] = (own[s.category] || 0) + 1; });
@@ -234,7 +244,7 @@ function renderCats() {
   for (const { c, d } of catTree()) {
     if (hidden.has(c.code)) continue;
     const kids = catKids(c.code).length;
-    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(c.code)}</span><span class="ttl">${esc(c.title || '')}</span><span class="n" title="${kids ? `이 카테고리 ${own[c.code] || 0}개 + 하위 ${count(c.code) - (own[c.code] || 0)}개` : ''}">${kids ? `${own[c.code] || 0}<i class="sub-n">+${count(c.code) - (own[c.code] || 0)}</i>` : count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
+    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(catLabel(c))}</span><span class="ttl">${esc(c.title || '')}</span><span class="n" title="${kids ? `이 카테고리 ${own[c.code] || 0}개 + 하위 ${count(c.code) - (own[c.code] || 0)}개` : ''}">${kids ? `${own[c.code] || 0}<i class="sub-n">+${count(c.code) - (own[c.code] || 0)}</i>` : count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
   }
   if (none) h += `<li class="${L.cat === '__none' ? 'on' : ''}" data-c="__none"><span class="code">–</span><span class="ttl">미분류</span><span class="n">${none}</span></li>`;
   $('catList').innerHTML = h;
@@ -270,25 +280,29 @@ $('catAdd').onsubmit = async (e) => {
   L.cat = code; renderLib(); toast(`카테고리 ${code}를 만들었어요.`);
 };
 function addSubCat(parent) {
-  const p = D.cats.find((c) => c.code === parent); if (!p) return;
+  const p = catOf(parent); if (!p) return;
+  const no = nextSubNo(p.code);
   openModal(`
     <div class="mh"><h3>하위 카테고리 추가</h3><button class="icon" data-close>✕</button></div>
     <div class="mb">
-      <p class="small" style="margin:0 0 10px">상위: <b>${esc(p.code)}</b> ${esc(p.title || '')}</p>
-      <label>번호<input id="scCode" maxlength="20" value="${esc(p.code)}-" placeholder="예: ${esc(p.code)}-1"></label>
+      <p class="small" style="margin:0 0 10px">상위: <b>${esc(catLabel(p))}</b> ${esc(p.title || '')}</p>
+      <label>번호<input id="scCode" maxlength="40" value="${no}" placeholder="예: ${no}"></label>
       <label>이름 <span class="small">(선택)</span><input id="scTitle" maxlength="40" placeholder="예: 관계대명사 what"></label>
+      <p class="hint">번호는 같은 상위 안에서만 겹치지 않으면 돼요. 다른 카테고리 아래에도 01, 02를 또 쓸 수 있어요.</p>
     </div>
     <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="scGo">추가</button></div>`, 'sm');
-  setTimeout(() => { const i = $('scCode'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 30);
+  setTimeout(() => { const i = $('scCode'); if (i) { i.focus(); i.select(); } }, 30);
   const go = async () => {
-    const code = $('scCode').value.trim(), title = $('scTitle').value.trim();
-    if (!code || code === p.code + '-') return toast('번호를 적어 주세요.', true);
-    if (D.cats.some((c) => c.code === code)) return toast('이미 있는 번호예요.', true);
-    const { data, error } = await sb.from('drill_categories').insert({ code, title: title || null, parent: p.code }).select().single();
+    const label = $('scCode').value.trim(), title = $('scTitle').value.trim();
+    if (!label) return toast('번호를 적어 주세요.', true);
+    if (D.cats.some((c) => c.parent === p.code && catLabel(c) === label)) return toast(`${catLabel(p)} 아래에 이미 ${label}이 있어요.`, true);
+    let code = `${p.code} › ${label}`, k = 2;
+    while (catOf(code)) code = `${p.code} › ${label} (${k++})`;
+    const { data, error } = await sb.from('drill_categories').insert({ code, label, title: title || null, parent: p.code }).select().single();
     if (error) return toast(errText(error), true);
-    D.cats.push(data); D.cats.sort((a, b) => natural(a.code, b.code)); sortSents(D.sents);
+    D.cats.push(data); sortSents(D.sents);
     L.catClosed.delete(p.code); store.set('catClosed', [...L.catClosed]);
-    closeModal(); L.cat = code; renderLib(); toast(`${p.code} 아래에 ${code}를 만들었어요.`);
+    closeModal(); L.cat = code; renderLib(); toast(`${catLabel(p)} 아래에 ${label}${title ? ' ' + title : ''}을(를) 만들었어요.`);
   };
   $('scGo').onclick = go;
   ['scCode', 'scTitle'].forEach((id) => { $(id).onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } }; });
@@ -303,22 +317,28 @@ async function addCategoryInline(code, title) {
 function editCat(code) {
   const c = D.cats.find((x) => x.code === code); if (!c) return;
   openModal(`
-    <div class="mh"><h3>카테고리 ${esc(code)}</h3><button class="icon" data-close>✕</button></div>
+    <div class="mh"><h3>카테고리 ${esc(catFull(code))}</h3><button class="icon" data-close>✕</button></div>
     <div class="mb">
-      <label>번호<input id="ecCode" value="${esc(c.code)}" maxlength="20"></label>
+      <label>번호<input id="ecCode" value="${esc(catLabel(c))}" maxlength="${c.parent || c.label ? 40 : 20}"></label>
       <label>이름<input id="ecTitle" value="${esc(c.title || '')}" maxlength="40"></label>
-      <label>상위 카테고리<select id="ecParent"><option value="">없음 (맨 위)</option>${catTree().filter(({ c: x }) => !catDesc(code).has(x.code)).map(({ c: x, d }) => `<option value="${esc(x.code)}" ${x.code === c.parent ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(x.code)} ${esc(x.title || '')}</option>`).join('')}</select></label>
+      <label>상위 카테고리<select id="ecParent"><option value="">없음 (맨 위)</option>${catTree().filter(({ c: x }) => !catDesc(code).has(x.code)).map(({ c: x, d }) => `<option value="${esc(x.code)}" ${x.code === c.parent ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(catLabel(x))} ${esc(x.title || '')}</option>`).join('')}</select></label>
       <p class="hint">삭제하면 이 카테고리의 문장은 지워지지 않고 '미분류'로 옮겨져요. 하위 카테고리는 한 단계 위로 올라가요.</p>
     </div>
     <div class="mf"><button class="btn danger" id="ecDel">삭제</button><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="ecSave">저장</button></div>`, 'sm');
   $('ecSave').onclick = async () => {
-    const nc = $('ecCode').value.trim(), nt = $('ecTitle').value.trim();
-    if (!nc) return;
-    if (nc !== code && D.cats.some((x) => x.code === nc)) return toast('이미 있는 번호예요.', true);
+    const nn = $('ecCode').value.trim(), nt = $('ecTitle').value.trim();
+    if (!nn) return;
     const np = $('ecParent').value || null;
-    const { error } = await sb.from('drill_categories').update({ code: nc, title: nt || null, parent: np }).eq('code', code);
+    // 같은 상위(또는 맨 위) 안에서만 번호가 겹치면 안 됨
+    if (D.cats.some((x) => x.code !== code && (x.parent || null) === np && catLabel(x) === nn)) return toast(np ? `${catName(np)} 아래에 이미 ${nn}이 있어요.` : '맨 위에 이미 같은 번호가 있어요.', true);
+    // 하위이거나 표시 번호를 따로 쓰는 카테고리는 label만 바꾸고, 예전 방식의 맨 위 카테고리는 번호(code) 자체를 바꿈
+    const useLabel = !!(np || c.label);
+    let nc = code, nl = c.label || null;
+    if (useLabel) nl = nn === code ? null : nn;
+    else if (nn !== code) { if (catOf(nn)) return toast('이미 있는 번호예요.', true); nc = nn; }
+    const { error } = await sb.from('drill_categories').update({ code: nc, label: nl, title: nt || null, parent: np }).eq('code', code);
     if (error) return toast(errText(error), true);
-    c.code = nc; c.title = nt || null; c.parent = np;
+    c.code = nc; c.label = nl; c.title = nt || null; c.parent = np;
     D.cats.forEach((x) => { if (x.parent === code) x.parent = nc; });
     D.sents.forEach((s) => { if (s.category === code) s.category = nc; });
     D.cats.sort((a, b) => natural(a.code, b.code)); sortSents(D.sents);
@@ -326,7 +346,7 @@ function editCat(code) {
     closeModal(); renderLib(); renderPl(); renderStage();
   };
   $('ecDel').onclick = async () => {
-    if (!await confirmBox('카테고리 삭제', `${code} 카테고리를 지울까요? 문장은 미분류로 남아요.`, '삭제', true)) return;
+    if (!await confirmBox('카테고리 삭제', `${catFull(code)} 카테고리를 지울까요? 문장은 미분류로 남아요.`, '삭제', true)) return;
     const { error } = await sb.from('drill_categories').delete().eq('code', code);
     if (error) return toast(errText(error), true);
     D.cats = D.cats.filter((x) => x.code !== code);
@@ -395,7 +415,7 @@ function sentHtml(s, no) {
     <div class="body">
       <div class="en">${en}</div>
       ${ko ? `<div class="ko">${ko}</div>` : ''}
-      <div class="tags">${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${s.author ? `<span class="tag au" title="작성자">${esc(s.author)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}${xv ? '' : xsets.slice(0, 3).map((x) => `<span class="tag ex" title="${esc(examLabel(x))}">${esc(examShort(x))}</span>`).join('') + (xsets.length > 3 ? `<span class="tag ex">외 ${xsets.length - 3}</span>` : '')}</div>
+      <div class="tags">${s.category ? `<span class="tag cat">${esc(catFull(s.category))}</span>` : ''}${s.source_label ? `<span class="tag src">${esc(s.source_label)}</span>` : ''}${s.author ? `<span class="tag au" title="작성자">${esc(s.author)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}${xv ? '' : xsets.slice(0, 3).map((x) => `<span class="tag ex" title="${esc(examLabel(x))}">${esc(examShort(x))}</span>`).join('') + (xsets.length > 3 ? `<span class="tag ex">외 ${xsets.length - 3}</span>` : '')}</div>
       ${s.memo ? `<div class="memo">${esc(s.memo)}</div>` : ''}
       ${it ? `<div class="xinfo">${(it.types || []).map((t) => `<span class="xt">${esc(t)}</span>`).join('')}${it.level ? `<span class="xl" title="출제 가능성">${'★'.repeat(it.level)}${'☆'.repeat(3 - it.level)}</span>` : ''}${it.point ? `<span class="xp">${esc(it.point)}</span>` : ''}${!(it.types || []).length && !it.level && !it.point ? '<span class="xnone">서술형 정보 없음 — ✍ 버튼으로 유형·포인트를 적어 두세요</span>' : ''}</div>` : ''}
     </div>
@@ -431,7 +451,7 @@ function renderLib() {
         if (groups) {
           const c = D.cats.find((x) => x.code === s.category);
           const par = c && c.parent ? D.cats.find((x) => x.code === c.parent) : null;
-          h += `<div class="group-h${par ? ' sub' : ''}">${par ? `<em>${esc(par.code)} ›</em> ` : ''}${s.category ? esc(s.category) : '미분류'} <span>${c && c.title ? esc(c.title) : ''}</span></div>`;
+          h += `<div class="group-h${par ? ' sub' : ''}">${par ? `<em>${esc(catLabel(par))} ›</em> ` : ''}${s.category ? esc(catName(s.category)) : '미분류'} <span>${c && c.title ? esc(c.title) : ''}</span></div>`;
         }
       }
       n++;
@@ -585,7 +605,7 @@ function checkDraft(d) {
 function openEditor(s) {
   const isNew = !s;
   let drafts = isNew ? [] : [draftFrom(s)];
-  const catOpts = (sel) => `<option value="">미분류</option>${catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(c.code)} ${esc(c.title || '')}</option>`).join('')}<option value="__new">+ 새 카테고리…</option>`;
+  const catOpts = (sel) => `<option value="">미분류</option>${catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(catLabel(c))} ${esc(c.title || '')}</option>`).join('')}<option value="__new">+ 새 카테고리…</option>`;
   const defCat = s ? (s.category || '') : (L.cat && L.cat !== '__none' ? L.cat : (store.get('lastCat', '') || ''));
   openModal(`
     <div class="mh"><h3>${isNew ? '새 문장 추가' : '문장 수정'}</h3><button class="icon" data-close>✕</button></div>
@@ -940,7 +960,7 @@ function openLoader() {
   const draw = () => `
     <div class="mh"><h3>수업 목록 불러오기</h3><button class="icon" data-close>✕</button></div>
     <div class="mb pick">
-      <div><h4>카테고리</h4><div class="chips">${catTree().map(({ c, d }) => ({ c, d })).filter(({ c }) => catN(c.code)).map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(c.code)}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
+      <div><h4>카테고리</h4><div class="chips">${catTree().map(({ c, d }) => ({ c, d })).filter(({ c }) => catN(c.code)).map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(catLabel(c))}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
       <div><h4>모아 듣기</h4><div class="chips">
         <button class="chip" data-all="lessons">지금까지 수업한 문장 전체<small>${allLessonIds().length}</small></button>
         <button class="chip" data-all="star">★ 별표 문장<small>${starN}</small></button>
@@ -1038,7 +1058,7 @@ $('plSave').onclick = () => {
   const cur = D.lessons.find((l) => l.id === C.lessonId);
   const today = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   const cats = [...new Set(C.list.map((id) => byId(id) && byId(id).category).filter(Boolean))];
-  const defTitle = cur ? cur.title : (cats.length ? cats.join(', ') + ' 구문' : '구문 수업');
+  const defTitle = cur ? cur.title : (cats.length ? cats.map(catFull).join(', ') + ' 구문' : '구문 수업');
   openModal(`
     <div class="mh"><h3>수업 기록 저장</h3><button class="icon" data-close>✕</button></div>
     <div class="mb">
@@ -1616,7 +1636,7 @@ function koVisible(k) {
 function renderStage() {
   const s = curSent();
   $('stNum').textContent = s ? `${C.idx + 1} / ${C.list.length}` : '–';
-  $('stMeta').innerHTML = s ? `${s.category ? `<span class="tag cat">${esc(s.category)}</span>` : ''}${s.source_label ? `<span class="tag">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
+  $('stMeta').innerHTML = s ? `${s.category ? `<span class="tag cat">${esc(catFull(s.category))}</span>` : ''}${s.source_label ? `<span class="tag">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
   setStateText();
   if (!s) {
     $('stChunks').innerHTML = '<div class="empty-stage">왼쪽 <b>불러오기</b>에서 카테고리나 수업 기록을 고르거나,<br>문장 관리에서 문장을 골라 수업 목록에 넣으세요.</div>';
