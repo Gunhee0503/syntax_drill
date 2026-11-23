@@ -342,3 +342,10 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .examlist li.xall .ttl{color:#2f5f93;font-weight:600}
 .examlist li.xset .ttl{display:flex;flex-direction:column}
 .examlist .xname{font-size:12px;color:#2f5f93;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.examlist li.xg{padding-left:22px;font-size:12.5px;font-weight:700;color:var(--ink2);cursor:default;margin-top:2px}
+.examlist li.xg:hover{background:none}
+.examlist .xg-add{border:0;background:#e1ebf8;color:#2f5f93;font:inherit;font-size:11px;font-weight:700;border-radius:6px;padding:3px 7px;cursor:pointer;flex-shrink:0}
+.examlist .xg-add:hover{background:#cfdff3}
+.examlist li.xset{padding-left:34px}
+.examlist .xwhole{color:var(--ink3)}
+.examlist li.xset .ttl{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

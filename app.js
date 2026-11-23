@@ -1079,13 +1079,14 @@ $('lessonAddBtn').onclick = () => openNewLesson(null);
 /* ---------- 내신 세트: 학교·학년·연도·학기·시험 + 범위 메모, 문장마다 서술형 정보 ---------- */
 const XTYPES = ['배열 영작', '조건 영작', '어법 수정', '요약문 완성', '빈칸 서술'];
 const EXAM_NAME = { mid: '중간', final: '기말' };
+function examKey(x) { return [x.school, x.year, x.grade, x.term, x.exam].join('|'); }
 function examById(id) { return D.exams.find((x) => x.id === id) || null; }
 function editX() { return (L.exam && examById(L.exam)) || null; }
 function examLabel(x) { return `${x.school} ${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}${x.name ? ' · ' + x.name : ''}`; }
 function examShort(x) { return `${x.school} ${x.grade}-${x.term} ${EXAM_NAME[x.exam]} '${String(x.year).slice(2)}${x.name ? ' · ' + x.name : ''}`; }
 function sortExams(a) {
   const sp = (n) => { const i = D.schools.findIndex((x) => x.name === n); return i < 0 ? 999 : i; };
-  return a.sort((p, q) => sp(p.school) - sp(q.school) || q.year - p.year || p.grade - q.grade || q.term - p.term || (q.exam === 'final') - (p.exam === 'final') || String(p.name || '').localeCompare(String(q.name || ''), 'ko', { numeric: true }));
+  return a.sort((p, q) => sp(p.school) - sp(q.school) || q.year - p.year || p.grade - q.grade || q.term - p.term || (q.exam === 'final') - (p.exam === 'final') || (!!p.name - !!q.name) || String(p.name || '').localeCompare(String(q.name || ''), 'ko', { numeric: true }));
 }
 function xItemsOf(setId) { return D.xitems.filter((x) => x.set_id === setId).sort((a, b) => a.position - b.position); }
 function xItem(setId, sid) { return D.xitems.find((x) => x.set_id === setId && x.sentence_id === sid) || null; }
@@ -1106,15 +1107,25 @@ function renderExamSide() {
     h += `<li class="xs ${sets.length ? '' : 'empty'} ${open ? 'open' : ''}" data-xs="${esc(n)}" aria-expanded="${open}"><span class="car">${sets.length ? (open ? '▾' : '▸') : ''}</span><span class="ttl">${esc(n)}</span><span class="n">${sets.length ? sets.length + '세트' : ''}</span></li>`;
     if (!open) continue;
     if (sets.length > 1 || cnt) h += `<li class="xall ${L.xschool === n ? 'on' : ''}" data-xall="${esc(n)}"><span class="ttl">이 학교 문장 모두 보기</span><span class="n">${cnt || ''}</span></li>`;
-    for (const x of sets) {
-      h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}"><span class="ttl"><span>${x.year} · ${x.grade}학년 ${x.term}학기 ${EXAM_NAME[x.exam]}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span>${x.name ? `<small class="xname">${esc(x.name)}</small>` : ''}</span><span class="n">${xItemsOf(x.id).length}</span></li>`;
+    // 시험(연도·학년·학기·중간/기말)별로 묶고, 그 아래에 범위(세트 이름)를 하위 항목으로
+    const groups = new Map();
+    for (const x of sets) { const k = examKey(x); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(x); }
+    for (const [k, gs] of groups) {
+      const g = gs[0], n2 = new Set(D.xitems.filter((it) => gs.some((x) => x.id === it.set_id)).map((it) => it.sentence_id)).size;
+      h += `<li class="xg" data-xg="${esc(k)}"><span class="ttl">${g.year} · ${g.grade}학년 ${g.term}학기 ${EXAM_NAME[g.exam]}</span><span class="n">${n2 || ''}</span><button class="xg-add" data-xg-add="${esc(k)}" title="이 시험에 범위 추가">+ 범위</button></li>`;
+      for (const x of gs) {
+        h += `<li class="xset ${L.exam === x.id ? 'on' : ''}" data-x="${x.id}"><span class="ttl">${x.name ? esc(x.name) : '<span class="xwhole">시험 전체</span>'}${x.published ? ' <i class="pub" title="ECHO 공개 중">●</i>' : ''}</span><span class="n">${xItemsOf(x.id).length}</span></li>`;
+      }
     }
   }
   $('examList').innerHTML = h || '<li class="empty">학교가 없어요</li>';
 }
 $('examList').onclick = (e) => {
   const li = e.target.closest('li'); if (!li) return;
+  const add = e.target.closest('[data-xg-add]');
+  if (add) return openAddRange(add.dataset.xgAdd);
   if (li.dataset.x) { L.cat = ''; return setEditExam(li.dataset.x, true); }
+  if (li.dataset.xg) return;
   if (li.dataset.xall != null) {
     const n = li.dataset.xall;
     L.xschool = L.xschool === n ? '' : n; L.cat = ''; if (L.xschool) { L.onlyExam = false; } return renderLib();
@@ -1131,6 +1142,36 @@ $('examList').onclick = (e) => {
     L.xopen.add(n); store.set('xopen', [...L.xopen]); renderLib();
   }
 };
+// 시험 아래에 범위(하위 세트) 바로 추가: 이름·범위 메모만 적으면 학교·시험·공개 반은 같은 시험 세트에서 그대로 가져옴
+function openAddRange(key) {
+  const sib = D.exams.find((x) => examKey(x) === key); if (!sib) return;
+  const base = `${sib.school} ${sib.grade}학년 ${sib.year} ${sib.term}학기 ${EXAM_NAME[sib.exam]}`;
+  openModal(`
+    <div class="mh"><h3>범위 추가</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <p class="small" style="margin:0 0 10px">${esc(base)}</p>
+      <label>범위 이름<input id="arName" maxlength="40" placeholder="예: 9월 모의고사 / 교과서 3~4과 / 수특 1~5강"></label>
+      <label>범위 메모 <span class="small">(선택)</span><textarea id="arScope" rows="2" maxlength="500" placeholder="예: 2026 고2 9월 모의고사 29~40번"></textarea></label>
+      ${sib.class_code ? `<p class="small" style="margin:0">ECHO 공개 반: ${esc(sib.class_name || sib.class_code)} (같은 시험 세트와 같게)</p>` : ''}
+    </div>
+    <div class="mf"><span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="arGo">추가하고 문장 넣기</button></div>`, 'sm');
+  setTimeout(() => $('arName') && $('arName').focus(), 30);
+  const go = async () => {
+    const name = $('arName').value.trim().replace(/\s+/g, ' ');
+    if (!name) return toast('범위 이름을 적어 주세요.', true);
+    const same = D.exams.find((y) => examKey(y) === key && (y.name || '') === name);
+    if (same) { closeModal(); setEditExam(same.id, true); return toast(`"${name}" 범위가 이미 있어서 그 세트를 열었어요.`); }
+    const row = { school: sib.school, grade: sib.grade, year: sib.year, term: sib.term, exam: sib.exam, name,
+      scope: $('arScope').value.trim() || null, class_code: sib.class_code || null, class_name: sib.class_name || null };
+    const { data, error } = await sb.from('drill_exam_sets').insert(row).select().single();
+    if (error) return toast(errText(error), true);
+    D.exams = sortExams([...D.exams, data]);
+    closeModal(); setEditExam(data.id, false);
+    toast(`"${name}" 범위를 추가했어요. 있던 문장은 체크해서 넣고, 새 문장은 + 새 문장으로 올리면 바로 들어가요.`);
+  };
+  $('arGo').onclick = go;
+  $('arName').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+}
 function renderXtypeFilter() {
   const has = D.xitems.some((x) => (x.types || []).length);
   $('xtypeFilter').hidden = !has && !L.xtype;
