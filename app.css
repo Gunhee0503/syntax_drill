@@ -487,3 +487,4 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .chips .chip.sub{color:#8a6a35;background:#fbf3e2}
 .group-h.sub{padding-left:14px;color:#a5700e}
 .group-h em{font-style:normal;font-weight:600;color:#9a917f;font-size:.9em}
+#catList .sub-n{font-style:normal;color:#b99a62;margin-left:2px;font-size:.92em}

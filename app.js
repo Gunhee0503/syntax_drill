@@ -234,7 +234,7 @@ function renderCats() {
   for (const { c, d } of catTree()) {
     if (hidden.has(c.code)) continue;
     const kids = catKids(c.code).length;
-    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(c.code)}</span><span class="ttl">${esc(c.title || '')}</span><span class="n">${count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
+    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(c.code)}</span><span class="ttl">${esc(c.title || '')}</span><span class="n" title="${kids ? `이 카테고리 ${own[c.code] || 0}개 + 하위 ${count(c.code) - (own[c.code] || 0)}개` : ''}">${kids ? `${own[c.code] || 0}<i class="sub-n">+${count(c.code) - (own[c.code] || 0)}</i>` : count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
   }
   if (none) h += `<li class="${L.cat === '__none' ? 'on' : ''}" data-c="__none"><span class="code">–</span><span class="ttl">미분류</span><span class="n">${none}</span></li>`;
   $('catList').innerHTML = h;
