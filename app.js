@@ -880,17 +880,40 @@ function openLoader() {
         <button class="chip" data-all="star">★ 별표 문장<small>${starN}</small></button>
         <button class="chip" data-all="every">문장 전체<small>${D.sents.length}</small></button>
       </div></div>
-      <div><h4>수업 기록</h4>
-        <ul class="lessons">${D.lessons.map((l) => `<li><span class="d">${esc(l.lesson_date)}</span><span class="t">${esc(l.title || '(제목 없음)')}${l.published ? ` <span class="tag src">ECHO · ${esc(l.class_name || l.class_code)}</span>` : ''}</span><span class="c">${l.items.filter((id) => byId(id)).length}문장</span>
-          <button class="btn sm" data-ls="${l.id}">불러오기</button><button class="icon" data-lsdel="${l.id}" title="기록 삭제">✕</button></li>`).join('') || '<li><span class="small">아직 저장한 수업 기록이 없어요. 수업 목록을 만든 뒤 \'수업 기록 저장\'을 누르세요.</span></li>'}</ul>
-      </div>
+      <div class="ld-q"><input id="ldQ" type="search" placeholder="수업·내신 검색 (날짜·반·제목·학교·범위)" autocomplete="off"></div>
+      <div><h4>내신 세트 <span class="small">— 불러오면 문장마다 "1번. ○○ 지문."을 먼저 읽어요</span></h4><ul class="lessons" id="ldExams"></ul></div>
+      <div><h4>수업 기록 <span class="small" id="ldLsN"></span></h4><ul class="lessons" id="ldLessons"></ul></div>
       <p class="small">문장 관리에서 문장을 골라 '수업 목록에 넣기'를 해도 됩니다.</p>
     </div>
     <div class="mf"><label class="chk" style="color:var(--ink2)"><input type="checkbox" id="ldAppend"> 지금 목록 뒤에 추가</label><span class="grow"></span><button class="btn ghost" data-close>닫기</button></div>`;
   openModal(draw());
+  // 검색: 수업 기록은 과거 것까지 전부, 내신 세트도 함께 찾음
+  const words = () => ($('ldQ') ? $('ldQ').value : '').trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (txt) => words().every((w) => txt.toLowerCase().includes(w));
+  const lsHay = (l) => { const d = new Date(l.lesson_date + 'T00:00:00'); return `${l.lesson_date} ${d.getMonth() + 1}/${d.getDate()} ${d.getMonth() + 1}월 ${l.title || ''} ${l.class_name || ''} ${l.class_code || ''}`; };
+  const fill = () => {
+    if (!$('ldLessons')) return;
+    const ls = [...D.lessons].sort((a, b) => String(b.lesson_date).localeCompare(String(a.lesson_date))).filter((l) => hit(lsHay(l)));
+    $('ldLsN').textContent = words().length ? `${ls.length}개 찾음` : `전체 ${ls.length}개`;
+    $('ldLessons').innerHTML = ls.map((l) => `<li><span class="d">${esc(l.lesson_date)}</span><span class="t">${esc(l.title || '(제목 없음)')}${l.class_name ? ` <span class="small">${esc(l.class_name)}</span>` : ''}${l.published ? ` <span class="tag src">ECHO</span>` : ''}</span><span class="c">${l.items.filter((id) => byId(id)).length}문장</span>
+          <button class="btn sm" data-ls="${l.id}">불러오기</button><button class="icon" data-lsdel="${l.id}" title="기록 삭제">✕</button></li>`).join('') || `<li><span class="small">${words().length ? '찾는 수업 기록이 없어요.' : '아직 저장한 수업 기록이 없어요. 수업 목록을 만든 뒤 \'수업 기록 저장\'을 누르세요.'}</span></li>`;
+    const xs = D.exams.filter((x) => hit(`${examLabel(x)} ${x.scope || ''} ${x.class_name || ''}`));
+    $('ldExams').innerHTML = xs.map((x) => { const n = xItemsOf(x.id).filter((it) => byId(it.sentence_id)).length;
+      return `<li><span class="d">${esc(x.school)}</span><span class="t">${x.grade}학년 ${x.year} ${x.term}학기 ${EXAM_NAME[x.exam]}${x.name ? ` <b class="ld-x">↳ ${esc(x.name)}</b>` : ''}${x.published ? ` <span class="tag src">ECHO</span>` : ''}</span><span class="c">${n}문장</span><button class="btn sm" data-lx="${x.id}" ${n ? '' : 'disabled'}>불러오기</button></li>`; }).join('')
+      || `<li><span class="small">${words().length ? '찾는 내신 세트가 없어요.' : '아직 만든 내신 세트가 없어요. 문장 관리 왼쪽 내신에서 + 세트로 만들어요.'}</span></li>`;
+  };
+  fill(); $('ldQ').oninput = fill; setTimeout(() => $('ldQ') && $('ldQ').focus(), 30);
   $('mbox').onclick = async (e) => {
     const append = $('ldAppend') && $('ldAppend').checked;
-    const b = e.target.closest('[data-cat],[data-all],[data-ls],[data-lsdel]'); if (!b) return;
+    const b = e.target.closest('[data-cat],[data-all],[data-ls],[data-lsdel],[data-lx]'); if (!b) return;
+    if (b.dataset.lx) {
+      const x = examById(b.dataset.lx), ids = xItemsOf(x.id).map((it) => it.sentence_id).filter((id) => byId(id));
+      if (!ids.length) return toast('문장이 없어요.', true);
+      $('mbox').onclick = null; closeModal();
+      addToPlaylist(ids, append ? 'add' : 'replace');
+      if (!append) { C.lessonId = null; C.examId = x.id; C.lessonTitle = examLabel(x); saveClass(); renderPl(); }
+      return;
+    }
     let ids = [], lesson = null;
     if (b.dataset.cat) ids = D.sents.filter((s) => s.category === b.dataset.cat).map((s) => s.id);
     else if (b.dataset.all === 'lessons') ids = allLessonIds();

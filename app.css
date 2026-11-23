@@ -377,3 +377,6 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .examlist li.xg{margin-top:6px}
 .exambar .xb-tags{display:flex;flex-wrap:wrap;gap:2px 8px;margin-top:3px;font-size:12px;line-height:1.5}
 .exambar .xb-tags span{color:#4f7bb0;font-weight:500;word-break:break-all}
+.pick .ld-q input{width:100%;padding:9px 12px;border-radius:10px;border:1px solid var(--line);font:inherit;font-size:14px}
+.pick .ld-x{color:#2f5f93;font-weight:600}
+#ldExams,#ldLessons{max-height:260px;overflow:auto}
