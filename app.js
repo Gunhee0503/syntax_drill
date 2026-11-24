@@ -973,13 +973,21 @@ $('plLoad').onclick = () => openLoader();
 const LX = { open: new Set(), chk: new Set() };   // 불러오기 창의 내신: 펼친 시험, 체크한 범위
 function openLoader() {
   const catN = (code) => D.sents.filter((s) => s.category === code).length;
+  const descN = (code) => { const set = catDesc(code); return D.sents.filter((s) => set.has(s.category)).length; };
+  // 챕터(상위) 줄 + 그 아래 단원(하위) 칩. 챕터를 누르면 단원 전체를 순서대로 불러옴
+  const catGroups = (keep, strip) => catTree().filter(({ c, d }) => d === 0 && keep(c) && descN(c.code)).map(({ c }) => {
+    const lab = strip ? catLabel(c).replace(/^(BEACON|COMPASS) /, '') : catLabel(c);
+    const kids = catKids(c.code).filter((k) => descN(k.code));
+    const head = `<button class="chip chap" data-cat="${esc(c.code)}" data-desc="1">${esc(lab)} <b>${esc(c.title || '')}</b><small>${kids.length ? '전체 ' : ''}${descN(c.code)}</small></button>`;
+    return `<div class="cgrp">${head}${kids.length ? `<div class="chips">${kids.map((k) => `<button class="chip sub" data-cat="${esc(k.code)}" data-desc="1">${esc(catLabel(k))}<small>${esc(k.title || '')} ${descN(k.code)}</small></button>`).join('')}</div>` : ''}</div>`;
+  }).join('');
   const starN = D.sents.filter((s) => s.starred).length;
   const allLessonIds = () => { const seen = new Set(), out = []; [...D.lessons].reverse().forEach((l) => l.items.forEach((id) => { if (!seen.has(id) && byId(id)) { seen.add(id); out.push(id); } })); return out; };
   const draw = () => `
     <div class="mh"><h3>수업 목록 불러오기</h3><button class="icon" data-close>✕</button></div>
     <div class="mb pick">
-      <div><h4>카테고리</h4><div class="chips">${catTree().filter(({ c }) => !mapEdOf(c.code) && catN(c.code)).map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(catLabel(c))}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
-      ${['BEACON', 'COMPASS'].some((ed) => catTree().some(({ c }) => mapEdOf(c.code) === ed && catN(c.code))) ? `<div><h4>구문의 지도</h4>${['BEACON', 'COMPASS'].map((ed) => { const cs = catTree().filter(({ c }) => mapEdOf(c.code) === ed && catN(c.code)); return cs.length ? `<details class="mapgrp" ${L.book === ed ? 'open' : ''}><summary>${ed === 'BEACON' ? 'BEACON 심화' : 'COMPASS 기본'}</summary><div class="chips">${cs.map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(catLabel(c).replace(/^(BEACON|COMPASS) /, ''))}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('')}</div></details>` : ''; }).join('')}</div>` : ''}
+      <div><h4>카테고리</h4>${catGroups((c) => !mapEdOf(c.code), false) || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div>
+      ${['BEACON', 'COMPASS'].some((ed) => catGroups((c) => mapEdOf(c.code) === ed, true)) ? `<div><h4>구문의 지도</h4>${['BEACON', 'COMPASS'].map((ed) => { const g = catGroups((c) => mapEdOf(c.code) === ed, true); return g ? `<details class="mapgrp" ${L.book === ed ? 'open' : ''}><summary>${ed === 'BEACON' ? 'BEACON 심화' : 'COMPASS 기본'}</summary>${g}</details>` : ''; }).join('')}</div>` : ''}
       <div><h4>모아 듣기</h4><div class="chips">
         <button class="chip" data-all="lessons">지금까지 수업한 문장 전체<small>${allLessonIds().length}</small></button>
         <button class="chip" data-all="star">★ 별표 문장<small>${starN}</small></button>
@@ -1041,7 +1049,8 @@ function openLoader() {
       return;
     }
     let ids = [], lesson = null;
-    if (b.dataset.cat) ids = D.sents.filter((s) => s.category === b.dataset.cat).map((s) => s.id);
+    if (b.dataset.cat && b.dataset.desc) { const set = catDesc(b.dataset.cat), ord = catOrder(); ids = D.sents.filter((s) => set.has(s.category)).sort((x, y) => (ord.get(x.category) - ord.get(y.category)) || (x.position - y.position)).map((s) => s.id); }
+    else if (b.dataset.cat) ids = D.sents.filter((s) => s.category === b.dataset.cat).map((s) => s.id);
     else if (b.dataset.all === 'lessons') ids = allLessonIds();
     else if (b.dataset.all === 'star') ids = D.sents.filter((s) => s.starred).map((s) => s.id);
     else if (b.dataset.all === 'every') ids = D.sents.map((s) => s.id);
