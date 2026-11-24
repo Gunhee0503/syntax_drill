@@ -517,3 +517,14 @@ canvas.ink.on{pointer-events:auto;cursor:crosshair}
 canvas.ink.on.er{cursor:cell}
 canvas.ink.hide{visibility:hidden}
 #stChunks{position:relative;z-index:1}
+
+/* 카테고리 묶음: 내 구문 / 구문의 지도(BEACON·COMPASS) */
+.book{display:flex;flex-direction:column;gap:6px;margin:2px 0 8px}
+.book .bk{display:flex;background:rgba(0,0,0,.05);border-radius:10px;padding:3px;gap:2px}
+.book .bk button{flex:1;border:0;background:none;padding:7px 6px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--ink2,#666);cursor:pointer;white-space:nowrap}
+.book .bk button.on{background:var(--card,#fff);color:var(--ink,#111);box-shadow:0 1px 3px rgba(0,0,0,.1)}
+.book .bk.ed button.on[data-ed="BEACON"]{background:#cf8417;color:#fff}
+.book .bk.ed button.on[data-ed="COMPASS"]{background:#3d7fc9;color:#fff}
+.mapgrp{margin-top:6px}
+.mapgrp summary{cursor:pointer;font-weight:800;font-size:13px;padding:4px 0}
+.mapgrp .chips{margin:4px 0 8px}

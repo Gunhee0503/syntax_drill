@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="app.css?v=29">
+<link rel="stylesheet" href="app.css?v=30">
 </head>
 <body>
 
@@ -52,6 +52,7 @@
         <input id="catTitle" placeholder="이름 (선택, 예: 관계사 기초)" maxlength="40">
         <div class="row"><button class="btn primary sm" type="submit">추가</button><button class="btn ghost sm" type="button" id="catCancel">취소</button></div>
       </form>
+      <div class="book" id="bookSeg"></div>
       <ul id="catList" class="catlist"></ul>
       </div>
       <div class="side-h side-h2" data-sec="lesson"><span class="stog">▾</span><span>수업</span><button class="btn ghost sm" id="lessonAddBtn">+ 수업</button></div>
@@ -233,6 +234,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=43"></script>
+<script src="app.js?v=44"></script>
 </body>
 </html>

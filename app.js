@@ -208,12 +208,16 @@ $('tabs').onclick = (e) => { const b = e.target.closest('button'); if (b) switch
 /* =========================================================
  *  문장 관리
  * ========================================================= */
-const L = { lesson: store.get('editLesson', null), onlyLesson: false, lessonAdd: false, examAdd: false, catClosed: new Set(store.get('catClosed', [])), xgOpen: new Set(store.get('xgOpen', [])), lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set() };
+const L = { lesson: store.get('editLesson', null), onlyLesson: false, lessonAdd: false, examAdd: false, catClosed: new Set(store.get('catClosed', [])), xgOpen: new Set(store.get('xgOpen', [])), lq: '', lmore: false, xopen: new Set(store.get('xopen', [])), exam: store.get('editExam', null), onlyExam: false, xschool: '', xtype: '', cat: '', q: '', tag: '', src: '', author: '', audio: '', star: false, sel: new Set(), busy: new Set(), book: store.get('book', 'mine') };
 
 /* 카테고리 트리: parent(상위 번호)로 묶음. 상위를 고르면 하위 문장까지 함께 보임 */
 // 하위 카테고리는 상위가 다르면 같은 번호(01, 02…)를 써도 됨: 화면엔 label, 내부 키는 code
 const catOf = (code) => D.cats.find((x) => x.code === code);
-const catLabel = (c) => (c ? (c.label || c.code) : '');
+/* 구문의 지도(BEACON·COMPASS) 카테고리는 왼쪽 목록에서 따로 묶어 보여 줌 — 코드가 '[구문의지도 BEACON] CH 04' 꼴 */
+const MAP_RE = /^\[구문의지도 (BEACON|COMPASS)\]/;
+const mapEdOf = (code) => { const m = MAP_RE.exec(code || ''); return m ? m[1] : null; };
+const catLabel = (c) => { if (!c) return ''; if (c.label) return c.label; const m = /^\[구문의지도 (BEACON|COMPASS)\] (CH \d+)$/.exec(c.code); return m ? `${m[1]} ${m[2]}` : c.code; };
+const inBook = (code) => { const ed = mapEdOf(code); return L.book === 'mine' ? !ed : ed === L.book; };
 const catName = (code) => { const c = catOf(code); return c ? catLabel(c) : (code || ''); };
 const catFull = (code) => { const c = catOf(code); if (!c) return code || ''; const p = c.parent && catOf(c.parent); return p ? `${catLabel(p)} › ${catLabel(c)}${c.label && c.title ? ' ' + c.title : ''}` : catLabel(c); };
 const byLabel = (a, b) => natural(catLabel(a), catLabel(b));
@@ -232,19 +236,32 @@ function catTree() {
 function catOrder() { const m = new Map(); catTree().forEach(({ c }, i) => m.set(c.code, i)); return m; }
 const catOptTree = (sel) => catTree().map(({ c, d }) => `<option value="${esc(c.code)}" ${c.code === sel ? 'selected' : ''}>${'　'.repeat(d)}${d ? '↳ ' : ''}${esc(catLabel(c))} ${esc(c.title || '')}</option>`).join('');
 function catDesc(code) { const out = new Set([code]); let grew = true; while (grew) { grew = false; D.cats.forEach((c) => { if (c.parent && out.has(c.parent) && !out.has(c.code)) { out.add(c.code); grew = true; } }); } return out; }
+function renderBook() {
+  const map = L.book !== 'mine', hasMap = D.cats.some((c) => mapEdOf(c.code));
+  $('bookSeg').hidden = !hasMap;
+  $('bookSeg').innerHTML = `<div class="bk"><button type="button" data-book="mine" class="${map ? '' : 'on'}">내 구문 카테고리</button><button type="button" data-book="map" class="${map ? 'on' : ''}">구문의 지도</button></div>`
+    + (map ? `<div class="bk ed"><button type="button" data-ed="BEACON" class="${L.book === 'BEACON' ? 'on' : ''}">BEACON 심화</button><button type="button" data-ed="COMPASS" class="${L.book === 'COMPASS' ? 'on' : ''}">COMPASS 기본</button></div>` : '');
+}
+$('bookSeg').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  const nb = b.dataset.ed || (b.dataset.book === 'map' ? (L.book === 'COMPASS' ? 'COMPASS' : 'BEACON') : 'mine');
+  if (nb === L.book) return;
+  L.book = nb; store.set('book', nb); L.cat = ''; L.sel.clear(); renderLib();
+};
 function renderCats() {
-  const own = {}; D.sents.forEach((s) => { if (s.category) own[s.category] = (own[s.category] || 0) + 1; });
+  renderBook();
+  const own = {}; D.sents.forEach((s) => { if (s.category && inBook(s.category)) own[s.category] = (own[s.category] || 0) + 1; });
   const count = (code) => [...catDesc(code)].reduce((n, k) => n + (own[k] || 0), 0);
-  const none = D.sents.filter((s) => !s.category).length;
+  const none = L.book === 'mine' ? D.sents.filter((s) => !s.category).length : 0;
   const closed = L.catClosed;
-  const parents = D.cats.filter((c) => catKids(c.code).length);
+  const parents = D.cats.filter((c) => inBook(c.code) && catKids(c.code).length);
   const allShut = parents.length && parents.every((c) => closed.has(c.code));
-  let h = `<li class="all ${L.cat === '' ? 'on' : ''}" data-c="" title="${parents.length ? '눌러서 하위 카테고리 모두 접기/펴기' : ''}">${parents.length ? `<span class="car">${allShut ? '▸' : '▾'}</span>` : ''}<span class="code">전체</span><span class="ttl"></span><span class="n">${D.sents.length}</span></li>`;
+  let h = `<li class="all ${L.cat === '' ? 'on' : ''}" data-c="" title="${parents.length ? '눌러서 하위 카테고리 모두 접기/펴기' : ''}">${parents.length ? `<span class="car">${allShut ? '▸' : '▾'}</span>` : ''}<span class="code">전체</span><span class="ttl"></span><span class="n">${D.sents.filter((x) => inBook(x.category)).length}</span></li>`;
   const hidden = new Set(); catTree().forEach(({ c }) => { if (closed.has(c.code) || hidden.has(c.code)) catKids(c.code).forEach((k) => hidden.add(k.code)); });
   for (const { c, d } of catTree()) {
-    if (hidden.has(c.code)) continue;
+    if (hidden.has(c.code) || !inBook(c.code)) continue;
     const kids = catKids(c.code).length;
-    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(catLabel(c))}</span><span class="ttl">${esc(c.title || '')}</span><span class="n" title="${kids ? `이 카테고리 ${own[c.code] || 0}개 + 하위 ${count(c.code) - (own[c.code] || 0)}개` : ''}">${kids ? `${own[c.code] || 0}<i class="sub-n">+${count(c.code) - (own[c.code] || 0)}</i>` : count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
+    h += `<li class="cat d${Math.min(d, 2)} ${L.cat === c.code ? 'on' : ''}" data-c="${esc(c.code)}" style="--d:${d}">${kids ? `<span class="car" data-cattog="${esc(c.code)}">${closed.has(c.code) ? '▸' : '▾'}</span>` : `<span class="car">${d ? '↳' : ''}</span>`}<span class="code">${esc(L.book !== 'mine' ? catLabel(c).replace(/^(BEACON|COMPASS) /, '') : catLabel(c))}</span><span class="ttl">${esc(c.title || '')}</span><span class="n" title="${kids ? `이 카테고리 ${own[c.code] || 0}개 + 하위 ${count(c.code) - (own[c.code] || 0)}개` : ''}">${kids ? `${own[c.code] || 0}<i class="sub-n">+${count(c.code) - (own[c.code] || 0)}</i>` : count(c.code)}</span><span class="cacts"><button data-subcat="${esc(c.code)}" title="하위 카테고리 추가">＋</button><button class="ed" data-edcat="${esc(c.code)}" title="카테고리 수정">✎</button></span></li>`;
   }
   if (none) h += `<li class="${L.cat === '__none' ? 'on' : ''}" data-c="__none"><span class="code">–</span><span class="ttl">미분류</span><span class="n">${none}</span></li>`;
   $('catList').innerHTML = h;
@@ -363,6 +380,7 @@ function filtered() {
   const catSet = L.cat && L.cat !== '__none' ? catDesc(L.cat) : null;
   return D.sents.filter((s) => {
     if (L.cat === '__none' ? s.category : (L.cat && !catSet.has(s.category))) return false;
+    if (!L.cat && !L.onlyLesson && !L.onlyExam && !L.xschool && !L.q && !inBook(s.category)) return false;   // 수업·세트·검색은 묶음과 상관없이
     if (L.star && !s.starred) return false;
     if (L.tag && !(s.tags || []).includes(L.tag)) return false;
     if (L.src && srcGroup(s) !== L.src) return false;
@@ -960,7 +978,8 @@ function openLoader() {
   const draw = () => `
     <div class="mh"><h3>수업 목록 불러오기</h3><button class="icon" data-close>✕</button></div>
     <div class="mb pick">
-      <div><h4>카테고리</h4><div class="chips">${catTree().map(({ c, d }) => ({ c, d })).filter(({ c }) => catN(c.code)).map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(catLabel(c))}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
+      <div><h4>카테고리</h4><div class="chips">${catTree().filter(({ c }) => !mapEdOf(c.code) && catN(c.code)).map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(catLabel(c))}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('') || '<span class="small">문장이 있는 카테고리가 없어요.</span>'}</div></div>
+      ${['BEACON', 'COMPASS'].some((ed) => catTree().some(({ c }) => mapEdOf(c.code) === ed && catN(c.code))) ? `<div><h4>구문의 지도</h4>${['BEACON', 'COMPASS'].map((ed) => { const cs = catTree().filter(({ c }) => mapEdOf(c.code) === ed && catN(c.code)); return cs.length ? `<details class="mapgrp" ${L.book === ed ? 'open' : ''}><summary>${ed === 'BEACON' ? 'BEACON 심화' : 'COMPASS 기본'}</summary><div class="chips">${cs.map(({ c, d }) => `<button class="chip${d ? ' sub' : ''}" data-cat="${esc(c.code)}">${d ? '↳ ' : ''}${esc(catLabel(c).replace(/^(BEACON|COMPASS) /, ''))}<small>${esc(c.title || '')} ${catN(c.code)}</small></button>`).join('')}</div></details>` : ''; }).join('')}</div>` : ''}
       <div><h4>모아 듣기</h4><div class="chips">
         <button class="chip" data-all="lessons">지금까지 수업한 문장 전체<small>${allLessonIds().length}</small></button>
         <button class="chip" data-all="star">★ 별표 문장<small>${starN}</small></button>
