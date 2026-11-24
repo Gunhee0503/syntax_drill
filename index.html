@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="app.css?v=28">
+<link rel="stylesheet" href="app.css?v=29">
 </head>
 <body>
 
@@ -118,10 +118,26 @@
           <div class="num" id="stNum">–</div>
           <div class="meta" id="stMeta"></div>
           <div class="state" id="stState"></div>
+          <div class="inkbar" id="inkBar">
+            <button class="ink-tg" id="inkTg" title="판서 켜기·끄기 (D)">✎ 판서</button>
+            <span class="ink-tools" id="inkTools" hidden>
+              <span class="ink-cols" id="inkCols"></span>
+              <span class="ink-sep"></span>
+              <button data-w="1" title="가는 펜">─</button><button data-w="2" title="보통 펜">━</button><button data-w="3" title="굵은 펜">▬</button>
+              <span class="ink-sep"></span>
+              <button id="inkHl" title="형광펜 (G)">형광</button>
+              <button id="inkEr" title="지우개 (E) · 펜 뒤쪽 지우개도 돼요">지우개</button>
+              <button id="inkUndo" title="되돌리기 (Z)">↶</button>
+              <button id="inkClear" title="이 문장 판서 모두 지우기 (C)">전체 지우기</button>
+            </span>
+            <button class="ink-eye" id="inkEye" title="판서 숨기기·보이기 (V)" hidden>👁</button>
+          </div>
         </div>
+        <div class="breath" id="stBreath" hidden></div>
         <div class="chunks" id="stChunks">
           <div class="empty-stage">왼쪽 <b>불러오기</b>에서 카테고리나 수업 기록을 고르거나,<br>문장 관리에서 문장을 골라 수업 목록에 넣으세요.</div>
         </div>
+        <canvas class="ink" id="ink"></canvas>
         <div class="count off" id="stCount"><div class="ring"><span id="stCountN"></span></div><div class="bar"><i id="stCountBar"></i></div><div class="lbl" id="stCountLbl">말해 보세요</div></div>
       </div>
       <div class="controls">
@@ -167,7 +183,7 @@
           <span class="grow"></span>
           <button class="btn ghost sm" id="fs" title="전체 화면 (F)">전체 화면</button>
         </div>
-        <p class="keys">단축키: Space 재생·일시정지 · Esc 정지 · ← → 문장 이동 · 1~3 모드 · H 영어 가리기 · K 우리말 (1·2번 모드) · F 전체 화면 · 의미구 클릭: 그 부분 다시 듣기 (2·3번 모드)</p>
+        <p class="keys">단축키: Space 재생·일시정지 · Esc 정지 · ← → 문장 이동 · 1~3 모드 · H 영어 가리기 · K 우리말 (1·2번 모드) · F 전체 화면 · 의미구 클릭·호흡 번호: 그 부분 듣기 (Shift+숫자) · D 판서 · E 지우개 · G 형광펜 · Z 되돌리기 · C 판서 지우기 · V 판서 숨기기</p>
       </div>
     </main>
   </section>
@@ -217,6 +233,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=42"></script>
+<script src="app.js?v=43"></script>
 </body>
 </html>

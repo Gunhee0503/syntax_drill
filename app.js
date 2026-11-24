@@ -1689,6 +1689,7 @@ function renderStage() {
   setStateText();
   if (!s) {
     $('stChunks').innerHTML = '<div class="empty-stage">왼쪽 <b>불러오기</b>에서 카테고리나 수업 기록을 고르거나,<br>문장 관리에서 문장을 골라 수업 목록에 넣으세요.</div>';
+    drawBreath(); if (INK) INK.show();
     return;
   }
   drawChunks();
@@ -1703,6 +1704,16 @@ function drawChunks() {
     const a = tap ? ` data-k="${k}" role="button" tabindex="0" title="눌러서 이 부분 다시 듣기"` : '';
     return `<div class="ck ${k === V.cur ? 'cur' : ''} ${dim ? 'dim' : ''}"${a}><div class="e">${enHtml(c.en, k)}</div><div class="k ${kv === 'off' ? 'off' : ''} ${kv === 'cue' ? 'cue' : ''}">${esc(c.ko || '')}</div></div>`;
   }).join('');
+  drawBreath(); if (INK) INK.show();
+}
+/* 호흡 버튼: 모드와 상관없이 의미구 하나만 바로 듣기 (판서 중에도 누를 수 있게 판서 층 위에 둠) */
+function drawBreath() {
+  const s = curSent(), el = $('stBreath');
+  const ch = s ? chunksOf(s) : [];
+  el.hidden = ch.length < 2;
+  if (el.hidden) { el.innerHTML = ''; return; }
+  const te = s.times_en || [];
+  el.innerHTML = '<span class="bl">호흡</span>' + ch.map((c, k) => `<button type="button" data-b="${k}" class="${k === V.cur ? 'cur' : ''} ${te[k] ? '' : 'na'}" title="${esc(c.en)}${te[k] ? '' : ' (음성 없음)'}">${k + 1}</button>`).join('');
 }
 function setStateText(txt) {
   const el = $('stState');
@@ -1955,7 +1966,8 @@ async function run() {
 }
 // 끊어듣기·직독직해: 의미구를 누르면 그 부분만 다시 (직독직해는 우리말 → 영어)
 async function playPart(k) {
-  const s = curSent(); if (!s || !s.audio_en) return;
+  const s = curSent(); if (!s || k < 0 || k >= chunksOf(s).length) return;
+  if (!s.audio_en) return toast('이 문장은 아직 음성이 없어요. 설정 › 한꺼번에 음성 만들기를 먼저 해 주세요.', true);
   const te = (s.times_en || [])[k], tk = (s.times_ko || [])[k];
   if (!te) return toast('이 부분은 음성 구간 정보가 없어요. ↻로 음성을 다시 만들어 주세요.', true);
   stop();
@@ -1972,6 +1984,125 @@ async function playPart(k) {
 }
 $('stChunks').addEventListener('click', (e) => { const c = e.target.closest('.ck[data-k]'); if (c) playPart(Number(c.dataset.k)); });
 $('stChunks').addEventListener('keydown', (e) => { const c = e.target.closest('.ck[data-k]'); if (c && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); playPart(Number(c.dataset.k)); } });
+$('stBreath').addEventListener('click', (e) => { const b = e.target.closest('button[data-b]'); if (b) { b.blur(); playPart(Number(b.dataset.b)); } });
+
+/* =========================================================
+ *  판서 (와콤 펜 · 마우스) — 문장마다 따로 저장, 이 컴퓨터(브라우저)에 보관
+ *  좌표는 무대(.stage) 크기 기준 0~1로 저장 → 전체 화면·프로젝터 해상도가 바뀌어도 같은 비율 위치
+ * ========================================================= */
+var INK = (() => {
+  const cv = $('ink'), ctx = cv.getContext('2d'), stage = $('stage');
+  const COLORS = [['#f3f1ea', '흰색'], ['#ffd24a', '노랑'], ['#ff5d5d', '빨강'], ['#5ec8ff', '파랑'], ['#6be39a', '초록']];
+  const WIDTH = { 1: 2.6, 2: 4.6, 3: 8 };
+  const st = Object.assign({ on: false, color: COLORS[1][0], w: 2, hl: false, er: false, hide: false }, store.get('inkOpts', {}));
+  st.on = false; st.er = false;
+  let pages = {}, live = null, dpr = 1;
+  const key = () => { const s = curSent(); return s ? s.id : null; };
+  const load = (id) => { if (!(id in pages)) { try { pages[id] = JSON.parse(localStorage.getItem('drill:ink:' + id) || '[]'); } catch { pages[id] = []; } } return pages[id]; };
+  const save = (id) => { try { const p = pages[id] || []; if (p.length) localStorage.setItem('drill:ink:' + id, JSON.stringify(p)); else localStorage.removeItem('drill:ink:' + id); } catch { toast('판서를 저장할 공간이 부족해요. 오래된 판서를 지워 주세요.', true); } };
+  const saveOpts = () => store.set('inkOpts', { color: st.color, w: st.w, hl: st.hl, hide: st.hide });
+  function size() {
+    const r = stage.getBoundingClientRect(); dpr = window.devicePixelRatio || 1;
+    const W = Math.round(r.width * dpr), H = Math.round(r.height * dpr);
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  }
+  const scale = () => cv.width / 1600;   // 굵기는 무대 너비에 비례
+  function stroke(sk) {
+    const p = sk.p, W = cv.width, H = cv.height; if (!p.length) return;
+    ctx.save();
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = sk.c; ctx.fillStyle = sk.c;
+    if (sk.hl) { ctx.globalAlpha = 0.33; ctx.lineCap = 'butt'; }
+    const base = (sk.hl ? 22 : WIDTH[sk.w] || 4.6) * scale();
+    if (p.length === 1) { ctx.beginPath(); ctx.arc(p[0][0] * W, p[0][1] * H, base * (sk.hl ? 0.5 : 0.6), 0, Math.PI * 2); ctx.fill(); ctx.restore(); return; }
+    if (sk.hl) {   // 형광펜은 일정한 굵기 한 번에 (겹친 부분이 진해지지 않게)
+      ctx.lineWidth = base; ctx.beginPath(); ctx.moveTo(p[0][0] * W, p[0][1] * H);
+      for (let i = 1; i < p.length; i++) ctx.lineTo(p[i][0] * W, p[i][1] * H);
+      ctx.stroke(); ctx.restore(); return;
+    }
+    for (let i = 1; i < p.length; i++) {   // 필압에 따라 굵기가 달라지는 펜
+      const a = p[i - 1], b = p[i];
+      ctx.lineWidth = base * (0.45 + 1.1 * ((a[2] + b[2]) / 2));
+      ctx.beginPath(); ctx.moveTo(a[0] * W, a[1] * H); ctx.lineTo(b[0] * W, b[1] * H); ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function redraw() {
+    size(); ctx.clearRect(0, 0, cv.width, cv.height);
+    const id = key(); if (!id || st.hide) return;
+    load(id).forEach(stroke); if (live) stroke(live);
+  }
+  function pt(e) {
+    const r = cv.getBoundingClientRect();
+    const pr = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
+    return [Math.round((e.clientX - r.left) / r.width * 10000) / 10000, Math.round((e.clientY - r.top) / r.height * 10000) / 10000, Math.round(pr * 100) / 100];
+  }
+  function eraseAt(e) {
+    const id = key(); if (!id) return;
+    const [x, y] = pt(e), r = cv.getBoundingClientRect(), R = 14 / r.width, ry = r.width / r.height;
+    const pg = load(id), n = pg.length;
+    pages[id] = pg.filter((sk) => !sk.p.some((q) => Math.hypot(q[0] - x, (q[1] - y) / ry) < R + (sk.hl ? 8 / r.width : 0)));
+    if (pages[id].length !== n) { save(id); redraw(); }
+  }
+  let erasing = false;
+  cv.addEventListener('pointerdown', (e) => {
+    if (!st.on || !key()) return;
+    e.preventDefault(); cv.setPointerCapture(e.pointerId);
+    erasing = st.er || e.button === 5 || (e.buttons & 32) === 32;   // 펜 뒤쪽 지우개
+    if (erasing) { eraseAt(e); return; }
+    live = { c: st.color, w: st.w, hl: st.hl, p: [pt(e)] }; redraw();
+  });
+  cv.addEventListener('pointermove', (e) => {
+    if (!st.on) return;
+    if (erasing) { if (e.buttons) eraseAt(e); return; }
+    if (!live) return;
+    const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+    for (const ev of evs) { const q = pt(ev), l = live.p[live.p.length - 1]; if (Math.abs(q[0] - l[0]) + Math.abs(q[1] - l[1]) > 0.0008) live.p.push(q); }
+    redraw();
+  });
+  const end = () => {
+    if (erasing) { erasing = false; return; }
+    if (!live) return;
+    const id = key(); if (id) { load(id).push(live); save(id); }
+    live = null; redraw();
+  };
+  cv.addEventListener('pointerup', end); cv.addEventListener('pointercancel', end); cv.addEventListener('lostpointercapture', end);
+  cv.addEventListener('contextmenu', (e) => { if (st.on) e.preventDefault(); });
+  new ResizeObserver(() => redraw()).observe(stage);
+
+  function sync() {
+    cv.classList.toggle('on', st.on); cv.classList.toggle('er', st.on && st.er); cv.classList.toggle('hide', st.hide);
+    $('inkTg').classList.toggle('on', st.on); $('inkTools').hidden = !st.on; $('inkEye').hidden = !st.on && !st.hide;
+    $('inkEye').classList.toggle('on', st.hide); $('inkEye').textContent = st.hide ? '판서 보이기' : '👁';
+    $('inkCols').innerHTML = COLORS.map(([c, n]) => `<button style="--c:${c}" data-c="${c}" title="${n}" class="${!st.er && c === st.color ? 'on' : ''}"></button>`).join('');
+    document.querySelectorAll('#inkTools [data-w]').forEach((b) => b.classList.toggle('on', !st.er && !st.hl && Number(b.dataset.w) === st.w));
+    $('inkHl').classList.toggle('on', st.hl && !st.er); $('inkEr').classList.toggle('on', st.er);
+  }
+  const set = (o) => { Object.assign(st, o); saveOpts(); sync(); redraw(); };
+  const api = {
+    toggle() { set({ on: !st.on, er: false, hide: false }); if (st.on) toast('판서 켜짐 — 펜으로 쓰세요. 의미구 듣기는 위의 호흡 번호로 (D로 끄기)'); },
+    eraser() { if (!st.on) set({ on: true }); set({ er: !st.er }); },
+    hl() { if (!st.on) set({ on: true }); set({ hl: !st.hl, er: false }); },
+    undo() { const id = key(); if (!id) return; const pg = load(id); if (pg.length) { pg.pop(); save(id); redraw(); } },
+    clear() { const id = key(); if (!id || !load(id).length) return; pages[id] = []; save(id); redraw(); toast('이 문장의 판서를 지웠어요. (되돌릴 수 없어요)'); },
+    hide() { set({ hide: !st.hide }); },
+    show() { live = null; redraw(); sync(); },
+    get on() { return st.on; },
+  };
+  $('inkTg').onclick = (e) => { e.currentTarget.blur(); api.toggle(); };
+  $('inkEye').onclick = (e) => { e.currentTarget.blur(); api.hide(); };
+  $('inkTools').onclick = (e) => {
+    const b = e.target.closest('button'); if (!b) return; b.blur();
+    if (b.dataset.c) set({ color: b.dataset.c, er: false, hl: false });
+    else if (b.dataset.w) set({ w: Number(b.dataset.w), er: false, hl: false });
+    else if (b.id === 'inkHl') api.hl();
+    else if (b.id === 'inkEr') api.eraser();
+    else if (b.id === 'inkUndo') api.undo();
+    else if (b.id === 'inkClear') api.clear();
+  };
+  sync();
+  return api;
+})();
+
 async function preview(s) {
   stop();
   const tok = ++P.tok;
@@ -1980,7 +2111,12 @@ async function preview(s) {
 
 document.addEventListener('keydown', (e) => {
   if ($('tab-class').hidden || !$('modal').hidden) return;
-  if (e.target.closest('input:not([type=checkbox]),textarea,select') || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target.closest('input:not([type=checkbox]),textarea,select')) return;
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z') && INK.on) { e.preventDefault(); INK.undo(); return; }
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.shiftKey && /^Digit[1-9]$/.test(e.code)) { e.preventDefault(); playPart(Number(e.code.slice(5)) - 1); return; }
+  const ik = { d: 'toggle', 'ㅇ': 'toggle', e: 'eraser', 'ㄷ': 'eraser', g: 'hl', 'ㅎ': 'hl', z: 'undo', 'ㅋ': 'undo', c: 'clear', 'ㅊ': 'clear', v: 'hide', 'ㅍ': 'hide' }[e.key.toLowerCase()];
+  if (ik && (ik === 'toggle' || ik === 'hide' || INK.on)) { e.preventDefault(); INK[ik](); return; }
   if (e.target.closest('button,input')) e.target.blur();
   const k = e.key;
   if (k === ' ') { e.preventDefault(); run(); }
