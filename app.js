@@ -907,6 +907,11 @@ if (!['full', 'chunk', 'drill'].includes(O.mode)) O.mode = 'full';
 const C = { list: [], idx: 0, lessonId: null, lessonTitle: '', examId: null };
 const V = { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 };
 const resetV = () => Object.assign(V, { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 });
+/* 영어 펼쳐 보기: 직독직해에서는 영어를 가려 두고, '영어' 버튼을 누른 의미구만 영어(글자+음성)를 보여 줌. 문장이 바뀌면 다시 가림 */
+const PK = { sid: null, set: new Set() };
+const peeked = (k) => { const s = curSent(); return !!s && PK.sid === s.id && PK.set.has(k); };
+const peek = (k) => { const s = curSent(); if (!s) return; if (PK.sid !== s.id) { PK.sid = s.id; PK.set = new Set(); } PK.set.add(k); };
+const unpeek = () => { PK.sid = null; PK.set = new Set(); };
 const curSent = () => byId(C.list[C.idx]);
 const saveOpts = () => store.set('opts', O);
 function saveClass() { store.set('class', { list: C.list, idx: C.idx, lessonId: C.lessonId, lessonTitle: C.lessonTitle, examId: C.examId, examIds: C.examIds || null }); }
@@ -1693,8 +1698,9 @@ function maskWord(w, kind) {
   return `<span class="mask" style="width:${Math.max(0.9, m[2].length * 0.52).toFixed(2)}em"></span>${esc(m[3])}`;
 }
 function enHtml(text, k) {
-  let kind = O.mode === 'drill' ? 'show' : O.enView;   // 직독직해는 보기 옵션 없이 항상 보이기
-  if (V.enHideFrom != null && k >= V.enHideFrom) kind = 'hide';
+  let kind = O.mode === 'drill' ? 'hide' : O.enView;   // 직독직해는 영어를 가려 두고 '영어' 버튼으로 펼침
+  if (peeked(k)) kind = 'show';
+  if (V.enHideFrom != null) kind = k >= V.enHideFrom ? 'hide' : 'show';
   if (kind === 'show') return esc(text);
   return wordsOf(text).map((w) => maskWord(w, kind)).join(' ');
 }
@@ -1711,6 +1717,7 @@ function stageSrc(s) {
 }
 function renderStage() {
   const s = curSent();
+  if (s && PK.sid && PK.sid !== s.id) unpeek();   // 다른 문장으로 가면 펼친 영어는 다시 가림
   $('stNum').textContent = s ? `${C.idx + 1} / ${C.list.length}` : '–';
   const xsrc = s && C.examId ? stageSrc(s) : '';
   $('stMeta').innerHTML = s ? `${xsrc ? `<span class="tag xsrc" title="출처">${esc(xsrc)}</span>` : ''}${s.category ? `<span class="tag cat">${esc(catFull(s.category))}</span>` : ''}${s.source_label && s.source_label !== xsrc ? `<span class="tag">${esc(s.source_label)}</span>` : ''}${(s.tags || []).map((t) => `<span class="tag">#${esc(t)}</span>`).join('')}` : '';
@@ -1729,8 +1736,9 @@ function drawChunks() {
   $('stChunks').innerHTML = ch.map((c, k) => {
     const kv = koVisible(k);
     const dim = V.cur >= 0 && k !== V.cur;
-    const a = tap ? ` data-k="${k}" role="button" tabindex="0" title="눌러서 이 부분 다시 듣기"` : '';
-    return `<div class="ck ${k === V.cur ? 'cur' : ''} ${dim ? 'dim' : ''}"${a}><div class="e">${enHtml(c.en, k)}</div><div class="k ${kv === 'off' ? 'off' : ''} ${kv === 'cue' ? 'cue' : ''}">${esc(c.ko || '')}</div></div>`;
+    const a = tap ? ` data-k="${k}" role="button" tabindex="0" title="${O.mode === 'drill' ? '눌러서 우리말 듣기' : '눌러서 이 부분 다시 듣기'}"` : '';
+    const enb = O.mode === 'drill' ? `<button type="button" class="ck-en" data-en="${k}" title="영어 듣고 보기">🔊 영어</button>` : '';
+    return `<div class="ck ${k === V.cur ? 'cur' : ''} ${dim ? 'dim' : ''}"${a}><div class="e">${enHtml(c.en, k)}</div><div class="k ${kv === 'off' ? 'off' : ''} ${kv === 'cue' ? 'cue' : ''}">${esc(c.ko || '')}</div>${enb}</div>`;
   }).join('');
   drawBreath(); if (INK) INK.show();
 }
@@ -1740,8 +1748,10 @@ function drawBreath() {
   const ch = s ? chunksOf(s) : [];
   el.hidden = ch.length < 2;
   if (el.hidden) { el.innerHTML = ''; return; }
-  const te = s.times_en || [];
-  el.innerHTML = '<span class="bl">호흡</span>' + ch.map((c, k) => `<button type="button" data-b="${k}" class="${k === V.cur ? 'cur' : ''} ${te[k] ? '' : 'na'}" title="${esc(c.en)}${te[k] ? '' : ' (음성 없음)'}">${k + 1}</button>`).join('');
+  const te = s.times_en || [], tk = s.times_ko || [];
+  el.innerHTML = '<span class="bl">호흡</span>' + ch.map((c, k) => `<span class="bg ${k === V.cur ? 'cur' : ''}"><b>${k + 1}</b>`
+    + `<button type="button" data-ko="${k}" class="${tk[k] && s.audio_ko ? '' : 'na'}" title="${k + 1}번 우리말 듣기: ${esc(c.ko || '')}">우리말</button>`
+    + `<button type="button" data-en="${k}" class="${te[k] ? '' : 'na'}" title="${k + 1}번 영어 듣기${O.mode === 'drill' ? '(글자도 펼침)' : ''}: ${esc(c.en)}">영어</button></span>`).join('');
 }
 function setStateText(txt) {
   const el = $('stState');
@@ -1765,7 +1775,7 @@ const segNum = { speed: true, rep: true, think: true, shadow: true };
   };
 });
 $('modes').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMode(b.dataset.mode); };
-function setMode(m) { stop(); O.mode = m; saveOpts(); syncControls(); setStateText(); if (curSent()) drawChunks(); }
+function setMode(m) { stop(); unpeek(); O.mode = m; saveOpts(); syncControls(); setStateText(); if (curSent()) drawChunks(); }
 $('auto').onchange = (e) => { O.auto = e.target.checked; saveOpts(); };
 $('prev').onclick = () => go(-1);
 $('next').onclick = () => go(1);
@@ -1951,7 +1961,7 @@ async function playSentence(s, mode, tok) {
       if (!await wait(400, tok)) return false;
       if (!await full()) return false;
     } else if (mode === 'drill') {
-      V.enHideFrom = 0;
+      unpeek(); V.enHideFrom = 0;
       for (let k = 0; k < ch.length; k++) {
         if (!ch[k].ko || !tk[k]) { V.enHideFrom = k + 1; continue; }
         V.cur = k; V.cue = k; drawChunks();
@@ -1962,7 +1972,7 @@ async function playSentence(s, mode, tok) {
         // 정답 영어를 듣고 한 번 더 소리 내어 따라 할 시간 (직독직해는 항상)
         if (!await wait(thinkMs(ch[k]), tok, '정답을 따라 말해 보세요')) return false;
       }
-      resetV(); drawChunks();
+      ch.forEach((_, k) => peek(k)); resetV(); drawChunks();
       if (!await wait(300, tok)) return false;
       if (!await full()) return false;
     }
@@ -1993,26 +2003,31 @@ async function run() {
   if (tok === P.tok) { setPlaying(false); resetV(); drawChunks(); }
 }
 // 끊어듣기·직독직해: 의미구를 누르면 그 부분만 다시 (직독직해는 우리말 → 영어)
-async function playPart(k) {
+// kind: 'ko' 우리말만 · 'en' 영어(직독직해에서는 글자도 펼침) · 없으면 의미구 클릭 기본값(직독직해=우리말, 그 밖=영어)
+async function playPart(k, kind) {
   const s = curSent(); if (!s || k < 0 || k >= chunksOf(s).length) return;
   if (!s.audio_en) return toast('이 문장은 아직 음성이 없어요. 설정 › 한꺼번에 음성 만들기를 먼저 해 주세요.', true);
+  kind = kind || (O.mode === 'drill' ? 'ko' : 'en');
   const te = (s.times_en || [])[k], tk = (s.times_ko || [])[k];
-  if (!te) return toast('이 부분은 음성 구간 정보가 없어요. ↻로 음성을 다시 만들어 주세요.', true);
+  if (kind === 'ko' && !(tk && s.audio_ko)) return toast('이 부분은 우리말 음성이 없어요. 우리말 뜻을 넣고 ↻로 음성을 다시 만들어 주세요.', true);
+  if (kind === 'en' && !te) return toast('이 부분은 음성 구간 정보가 없어요. ↻로 음성을 다시 만들어 주세요.', true);
   stop();
   const tok = ++P.tok;
-  V.cur = k; drawChunks(); setPlaying(true); setStateText(`${k + 1}번째 의미구 다시 듣기`);   // 재생 중으로 표시해야 ❚❚·Space로 일시정지됨
+  if (kind === 'en') peek(k);
+  V.cur = k; if (kind === 'ko') V.cue = k; drawChunks(); setPlaying(true);   // 재생 중으로 표시해야 ❚❚·Space로 일시정지됨
+  setStateText(`${k + 1}번째 의미구 ${kind === 'ko' ? '우리말' : '영어'} 듣기`);
   try {
-    if (O.mode === 'drill' && tk && s.audio_ko) {
-      if (!await seg(P.ko, await audioUrl(s.audio_ko), tk[0], tk[1], 1, tok)) return;
-      if (!await wait(400, tok)) return;
-    }
-    await seg(P.en, await audioUrl(s.audio_en), te[0], te[1], O.speed, tok);
+    if (kind === 'ko') await seg(P.ko, await audioUrl(s.audio_ko), tk[0], tk[1], 1, tok);
+    else await seg(P.en, await audioUrl(s.audio_en), te[0], te[1], O.speed, tok);
   } catch (e) { if (tok === P.tok) toast(errText(e), true); }
-  if (tok === P.tok) { setPlaying(false); V.cur = -1; drawChunks(); }
+  if (tok === P.tok) { setPlaying(false); V.cur = -1; V.cue = -1; drawChunks(); }
 }
-$('stChunks').addEventListener('click', (e) => { const c = e.target.closest('.ck[data-k]'); if (c) playPart(Number(c.dataset.k)); });
-$('stChunks').addEventListener('keydown', (e) => { const c = e.target.closest('.ck[data-k]'); if (c && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); playPart(Number(c.dataset.k)); } });
-$('stBreath').addEventListener('click', (e) => { const b = e.target.closest('button[data-b]'); if (b) { b.blur(); playPart(Number(b.dataset.b)); } });
+$('stChunks').addEventListener('click', (e) => {
+  const en = e.target.closest('[data-en]'); if (en) { e.stopPropagation(); en.blur(); return playPart(Number(en.dataset.en), 'en'); }
+  const c = e.target.closest('.ck[data-k]'); if (c) playPart(Number(c.dataset.k));
+});
+$('stChunks').addEventListener('keydown', (e) => { if (e.target.closest('[data-en]')) return; const c = e.target.closest('.ck[data-k]'); if (c && e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); playPart(Number(c.dataset.k)); } });
+$('stBreath').addEventListener('click', (e) => { const b = e.target.closest('button[data-ko],button[data-en]'); if (!b) return; b.blur(); playPart(Number(b.dataset.ko ?? b.dataset.en), b.dataset.ko != null ? 'ko' : 'en'); });
 
 /* =========================================================
  *  판서 (와콤 펜 · 마우스) — 문장마다 따로 저장, 이 컴퓨터(브라우저)에 보관

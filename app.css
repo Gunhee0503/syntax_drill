@@ -497,11 +497,13 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--acc);outline-off
 .stage-top{position:relative;z-index:3;flex-wrap:wrap}
 .breath{position:relative;z-index:3;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;margin-top:12px}
 .breath .bl{font-size:12px;color:var(--stage-dim);font-weight:700;letter-spacing:.06em;margin-right:4px}
-.breath button{min-width:40px;height:40px;padding:0 12px;border-radius:20px;border:1.5px solid #2c3650;background:var(--stage2);color:#cfd5e3;font-weight:800;font-size:16px;cursor:pointer;transition:background .15s,border-color .15s,color .15s}
-.breath button:hover{border-color:var(--acc);color:#fff}
-.breath button.cur{background:var(--acc);border-color:var(--acc);color:#1a1408}
-.breath button.na{opacity:.4}
-.breath button.all{font-size:13px;font-weight:700;min-width:auto}
+.breath .bg{display:inline-flex;align-items:center;gap:3px;padding:3px 4px 3px 10px;border-radius:22px;border:1.5px solid #2c3650;background:var(--stage2)}
+.breath .bg b{color:#cfd5e3;font-size:15px;font-weight:800;margin-right:3px;font-variant-numeric:tabular-nums}
+.breath .bg.cur{border-color:var(--acc)}.breath .bg.cur b{color:var(--acc)}
+.breath button{height:30px;padding:0 10px;border-radius:15px;border:0;background:rgba(255,255,255,.07);color:#cfd5e3;font-weight:700;font-size:12.5px;cursor:pointer;transition:background .15s,color .15s}
+.breath button[data-ko]{color:#7fd0c4}
+.breath button:hover{background:var(--acc);color:#1a1408}
+.breath button.na{opacity:.35}
 .inkbar{display:flex;align-items:center;gap:6px;margin-left:8px}
 .inkbar button{height:34px;min-width:34px;padding:0 10px;border-radius:9px;border:1px solid #2c3650;background:var(--stage2);color:#cfd5e3;font-size:13px;font-weight:700;cursor:pointer}
 .inkbar button:hover{border-color:#4a5675;color:#fff}
@@ -534,3 +536,5 @@ canvas.ink.hide{visibility:hidden}
 .chip.chap{background:#1d2333;color:#fff;border-color:#1d2333}
 .chip.chap b{font-weight:600;margin-left:4px}
 .chip.chap small{color:#c9cfdb}
+.ck .ck-en{margin-top:8px;height:30px;padding:0 12px;border-radius:15px;border:1px solid #2c3650;background:rgba(255,255,255,.06);color:#cfd5e3;font-size:12.5px;font-weight:700;cursor:pointer}
+.ck .ck-en:hover{background:var(--acc);color:#1a1408;border-color:var(--acc)}
