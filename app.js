@@ -2200,7 +2200,8 @@ var INK = (() => {
   const st = Object.assign({ on: false, color: COLORS[1][0], w: 2, hl: false, er: false, hide: false }, store.get('inkOpts', {}));
   st.on = false; st.er = false;
   let pages = {}, live = null, dpr = 1;
-  const key = () => { const s = curSent(); return s ? s.id : null; };
+  // 판서는 문장별로 저장. 독해적용 화면은 따로(지문별) — 1~3번 모드에서 쓴 필기는 독해 화면에 안 보임
+  const key = () => { const s = curSent(); return s ? (O.mode === 'read' ? 'read:' + passageKey(s) : s.id) : null; };
   const load = (id) => { if (!(id in pages)) { try { pages[id] = JSON.parse(localStorage.getItem('drill:ink:' + id) || '[]'); } catch { pages[id] = []; } } return pages[id]; };
   const save = (id) => { try { const p = pages[id] || []; if (p.length) localStorage.setItem('drill:ink:' + id, JSON.stringify(p)); else localStorage.removeItem('drill:ink:' + id); } catch { toast('판서를 저장할 공간이 부족해요. 오래된 판서를 지워 주세요.', true); } };
   const saveOpts = () => store.set('inkOpts', { color: st.color, w: st.w, hl: st.hl, hide: st.hide });
@@ -2286,7 +2287,7 @@ var INK = (() => {
     eraser() { if (!st.on) set({ on: true }); set({ er: !st.er }); },
     hl() { if (!st.on) set({ on: true }); set({ hl: !st.hl, er: false }); },
     undo() { const id = key(); if (!id) return; const pg = load(id); if (pg.length) { pg.pop(); save(id); redraw(); } },
-    clear() { const id = key(); if (!id || !load(id).length) return; pages[id] = []; save(id); redraw(); toast('이 문장의 판서를 지웠어요. (되돌릴 수 없어요)'); },
+    clear() { const id = key(); if (!id || !load(id).length) return; pages[id] = []; save(id); redraw(); toast(O.mode === 'read' ? '이 지문의 판서를 지웠어요. (되돌릴 수 없어요)' : '이 문장의 판서를 지웠어요. (되돌릴 수 없어요)'); },
     hide() { set({ hide: !st.hide }); },
     show() { live = null; redraw(); sync(); },
     get on() { return st.on; },
