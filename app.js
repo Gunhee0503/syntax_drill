@@ -1858,7 +1858,12 @@ function toggleAnswer() { R.show = !R.show; syncControls(); drawChunks(); }
 $('stChunks').addEventListener('click', (e) => {
   if (O.mode !== 'read') return;
   const li = e.target.closest('[data-ch]');
-  if (li) { const n = Number(li.dataset.ch); R.pick = R.pick === n ? null : n; return drawChunks(); }
+  if (li) {   // 한 번 누르면 학생 답 표시, 같은 보기를 빠르게 두 번 누르면(더블클릭) 그 답으로 정답 확인
+    const n = Number(li.dataset.ch), now = Date.now(), dbl = R.lastN === n && now - (R.lastT || 0) < 400;
+    R.lastN = n; R.lastT = now;
+    if (dbl) { R.pick = n; R.show = true; R.lastN = null; syncControls(); return drawChunks(); }
+    R.pick = R.pick === n && !R.show ? null : n; return drawChunks();
+  }
   const mk = e.target.closest('mark[data-sid]');
   if (mk) { const j = C.list.indexOf(mk.dataset.sid); if (j >= 0 && j !== C.idx) { stop(); C.idx = j; saveClass(); renderPl(); renderStage(); } }
 });
