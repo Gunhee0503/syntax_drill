@@ -69,7 +69,7 @@ async function fn(op, body = {}) {
 }
 
 /* ---------- 데이터 ---------- */
-const D = { cats: [], sents: [], lessons: [], staff: [], me: '', schools: [], exams: [], xitems: [], voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
+const D = { cats: [], sents: [], lessons: [], staff: [], me: '', schools: [], exams: [], xitems: [], passages: [], voices: { en: VOICES.en[0][0], ko: VOICES.ko[0][0] }, num: null };
 const byId = (id) => D.sents.find((s) => s.id === id);
 function sortSents(a) {
   const o = catOrder();
@@ -86,7 +86,7 @@ function sortSents(a) {
   });
 }
 async function loadAll() {
-  const [c, s, l, v, st, xs, xe, xi] = await Promise.all([
+  const [c, s, l, v, st, xs, xe, xi, ps] = await Promise.all([
     sb.from('drill_categories').select('*'),
     sb.from('drill_sentences').select('*'),
     sb.from('drill_lessons').select('*').order('lesson_date', { ascending: false }).order('created_at', { ascending: false }),
@@ -95,6 +95,7 @@ async function loadAll() {
     sb.from('drill_schools').select('*').order('position'),
     sb.from('drill_exam_sets').select('*'),
     sb.from('drill_exam_items').select('*'),
+    sb.from('drill_passages').select('*'),
   ]);
   for (const r of [c, s, l]) if (r.error) throw r.error;
   D.cats = c.data.sort((a, b) => natural(a.code, b.code));
@@ -103,6 +104,7 @@ async function loadAll() {
   if (v.data && v.data.value) D.voices = { ...D.voices, ...v.data.value };
   D.staff = (st && st.data) || [];
   D.schools = (xs && xs.data) || []; D.exams = sortExams((xe && xe.data) || []); D.xitems = (xi && xi.data) || [];
+  D.passages = (ps && !ps.error && ps.data) || [];
   if (L.exam && !D.exams.some((x) => x.id === L.exam)) { L.exam = null; store.set('editExam', null); }
 }
 /* 작성자(강사): 선생님 계정 이름으로 고르고, 이름 그대로 저장 */
@@ -903,7 +905,9 @@ function confirmBox(title, text, ok, danger) {
  *  수업
  * ========================================================= */
 const O = Object.assign({ mode: 'full', speed: 1, rep: 1, think: 1, shadow: 0, enView: 'show', koView: 'show', auto: false }, store.get('opts', {}));
-if (!['full', 'chunk', 'drill'].includes(O.mode)) O.mode = 'full';
+if (!['full', 'chunk', 'drill', 'read'].includes(O.mode)) O.mode = 'full';
+if (![1, 1.2, 1.4].includes(O.rdSize)) O.rdSize = 1.2;
+const R = { key: null, pick: null, show: false };   // 독해적용: 지금 지문, 학생이 고른 보기, 정답 보기
 const C = { list: [], idx: 0, lessonId: null, lessonTitle: '', examId: null };
 const V = { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 };
 const resetV = () => Object.assign(V, { cur: -1, enHideFrom: null, koHideFrom: null, cue: -1 });
@@ -1689,7 +1693,7 @@ $('selOutLesson').onclick = async () => {
 };
 
 /* ---------- 무대 그리기 ---------- */
-const MODE_LABEL = { full: '전체듣기', chunk: '끊어듣기', drill: '직독직해' };
+const MODE_LABEL = { full: '전체듣기', chunk: '끊어듣기', drill: '직독직해', read: '독해적용' };
 function wordsOf(t) { return String(t).split(/\s+/).filter(Boolean); }
 function maskWord(w, kind) {
   const m = w.match(/^([^A-Za-z0-9]*)([A-Za-z0-9'’-]+)(.*)$/);
@@ -1731,6 +1735,8 @@ function renderStage() {
 }
 function drawChunks() {
   const s = curSent(); if (!s) return;
+  $('stChunks').classList.toggle('reading', O.mode === 'read');
+  if (O.mode === 'read') { drawBreath(); drawReading(); if (INK) INK.show(); return; }
   const ch = chunksOf(s), tap = O.mode !== 'full';
   $('stChunks').classList.toggle('tap', tap);
   $('stChunks').innerHTML = ch.map((c, k) => {
@@ -1746,7 +1752,7 @@ function drawChunks() {
 function drawBreath() {
   const s = curSent(), el = $('stBreath');
   const ch = s ? chunksOf(s) : [];
-  el.hidden = ch.length < 2;
+  el.hidden = ch.length < 2 || O.mode === 'read';   // 독해적용 화면에선 지문이 주인공이라 숨김
   if (el.hidden) { el.innerHTML = ''; return; }
   const te = s.times_en || [], tk = s.times_ko || [];
   el.innerHTML = '<span class="bl">호흡</span>' + ch.map((c, k) => `<span class="bg ${k === V.cur ? 'cur' : ''}"><b>${k + 1}</b>`
@@ -1765,6 +1771,12 @@ function syncControls() {
   $('auto').checked = !!O.auto;
   $('enView').hidden = $('koView').hidden = O.mode === 'drill';
   $('shadow').hidden = O.mode !== 'chunk';   // 듣기만/따라 말하기는 끊어듣기에서만
+  const rd = O.mode === 'read';
+  ['rep', 'think'].forEach((id) => { $(id).hidden = rd; });
+  if (rd) $('enView').hidden = $('koView').hidden = true;
+  $('readOpts').hidden = !rd;
+  segOn('rdSize', O.rdSize);
+  $('rdAns').textContent = R.show ? '정답 가리기 (A)' : '정답 보기 (A)';
 }
 const segNum = { speed: true, rep: true, think: true, shadow: true };
 ['speed', 'rep', 'think', 'shadow', 'enView', 'koView'].forEach((id) => {
@@ -1776,6 +1788,135 @@ const segNum = { speed: true, rep: true, think: true, shadow: true };
 });
 $('modes').onclick = (e) => { const b = e.target.closest('button'); if (!b) return; setMode(b.dataset.mode); };
 function setMode(m) { stop(); unpeek(); O.mode = m; saveOpts(); syncControls(); setStateText(); if (curSent()) drawChunks(); }
+
+/* ---------- 4. 독해적용: 문장이 나온 지문 + 5지선다 (칠판 화면용, 검은 바탕·흰 글자) ---------- */
+const CIRC = ['①', '②', '③', '④', '⑤'];
+// 지문은 문장 출처(예: 2026 고2 9월 모의고사 29번)로 묶음. 출처가 없으면 그 문장에만 붙임
+const passageKey = (s) => (s ? (srcParts(s.source).label || squash(s.source_label) || `s:${s.id}`) : null);
+const passageOf = (s) => D.passages.find((p) => p.src_key === passageKey(s)) || null;
+const sentText = (s) => squash(s.text || chunksOf(s).map((c) => c.en).join(' '));
+const normQ = (t) => String(t).replace(/[\u2018\u2019\u02BC]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\u2013\u2014]/g, '-');   // 글자 수 그대로
+const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// 지문 속에서 수업 문장 자리 찾기 (띄어쓰기·줄바꿈·따옴표 모양이 달라도 찾음)
+function markRanges(passage, sents) {
+  const hay = normQ(passage), out = [];
+  sents.forEach((x) => {
+    const w = normQ(sentText(x)).split(' ').filter(Boolean); if (w.length < 3) return;
+    const m = new RegExp(w.map(reEsc).join('\\s+')).exec(hay);
+    if (m) out.push({ a: m.index, b: m.index + m[0].length, cur: x.id === curSent().id, id: x.id });
+  });
+  return out.sort((p, q) => p.a - q.a).filter((r, i, arr) => !i || r.a >= arr[i - 1].b);
+}
+function passageHtml(p) {
+  const same = C.list.map(byId).filter((x) => x && passageKey(x) === p.src_key);
+  const rs = markRanges(p.passage, same);
+  let h = '', at = 0;
+  const para = (t) => esc(t).replace(/\n{2,}/g, '<br><br>').replace(/\n/g, ' ');
+  rs.forEach((r) => { h += para(p.passage.slice(at, r.a)) + `<mark class="${r.cur ? 'cur' : ''}" data-sid="${r.id}">${para(p.passage.slice(r.a, r.b))}</mark>`; at = r.b; });
+  return { html: h + para(p.passage.slice(at)), found: rs.length, total: same.length };
+}
+function drawReading() {
+  const s = curSent(), p = passageOf(s), key = passageKey(s);
+  if (R.key !== key) { R.key = key; R.pick = null; R.show = false; syncControls(); }
+  $('stChunks').classList.remove('tap');
+  if (!p) {
+    $('stChunks').innerHTML = `<div class="empty-stage">이 문장이 나온 지문이 아직 없어요.<br><span class="small">${esc(key.startsWith('s:') ? '출처가 없는 문장 — 이 문장에만 지문을 붙여요' : key)}</span><br><button class="btn primary" id="rdAdd" style="margin-top:14px">지문·문제 넣기</button></div>`;
+    $('rdAdd').onclick = () => openPassageEdit(s);
+    return;
+  }
+  const ph = passageHtml(p), ch = (p.choices || []).filter((c) => String(c || '').trim());
+  const cls = (i) => { const n = i + 1; if (R.show && p.answer === n) return 'ok'; if (R.show && R.pick === n) return 'no'; return R.pick === n ? 'pick' : ''; };
+  $('stChunks').innerHTML = `<div class="rd" style="--rd:${O.rdSize}">
+    <div class="rd-p">${ph.html}</div>
+    <div class="rd-side">
+      ${p.question ? `<div class="rd-q">${esc(p.question)}</div>` : ''}
+      ${ch.length ? `<ol class="rd-ch">${ch.map((c, i) => `<li class="${cls(i)}" data-ch="${i + 1}" role="button" tabindex="0"><span class="no">${CIRC[i]}</span><span class="tx">${esc(c)}</span>${R.show && p.answer === i + 1 ? '<span class="mk">정답</span>' : ''}</li>`).join('')}</ol>` : '<p class="rd-none">보기가 아직 없어요. 아래 <b>지문·문제 고치기</b>로 넣어 주세요.</p>'}
+      ${R.show && p.explanation ? `<div class="rd-ex"><b>해설</b>${esc(p.explanation).replace(/\n/g, '<br>')}</div>` : ''}
+      ${R.show && !p.answer && ch.length ? '<p class="rd-none">정답 번호가 아직 없어요.</p>' : ''}
+    </div>
+  </div>${ph.total && !ph.found ? '<p class="rd-warn">지문에서 수업 문장 위치를 못 찾았어요 (철자·문장이 조금 다를 수 있어요).</p>' : ''}`;
+}
+function toggleAnswer() { R.show = !R.show; syncControls(); drawChunks(); }
+$('stChunks').addEventListener('click', (e) => {
+  if (O.mode !== 'read') return;
+  const li = e.target.closest('[data-ch]');
+  if (li) { const n = Number(li.dataset.ch); R.pick = R.pick === n ? null : n; return drawChunks(); }
+  const mk = e.target.closest('mark[data-sid]');
+  if (mk) { const j = C.list.indexOf(mk.dataset.sid); if (j >= 0 && j !== C.idx) { stop(); C.idx = j; saveClass(); renderPl(); renderStage(); } }
+});
+$('stChunks').addEventListener('keydown', (e) => { const li = e.target.closest('[data-ch]'); if (li && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); li.click(); } });
+// 독해적용에서 ◀ ▶는 다음 '지문'으로 (같은 지문 문장은 건너뜀)
+function goPassage(d) {
+  const cur = passageKey(curSent());
+  let j = C.idx;
+  for (;;) { j += d; if (j < 0 || j >= C.list.length) return toast(d > 0 ? '마지막 지문이에요.' : '첫 지문이에요.'); const x = byId(C.list[j]); if (x && passageKey(x) !== cur) break; }
+  if (d < 0) { const k = passageKey(byId(C.list[j])); while (j > 0 && passageKey(byId(C.list[j - 1])) === k) j--; }
+  stop(); C.idx = j; saveClass(); renderPl(); renderStage(); preloadAround();
+}
+$('readOpts').onclick = (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.v) { O.rdSize = Number(b.dataset.v); saveOpts(); syncControls(); drawChunks(); }
+  else if (b.id === 'rdAns') toggleAnswer();
+  else if (b.id === 'rdEdit') openPassageEdit(curSent());
+};
+// 지문·문제 넣기/고치기. 문제를 통째로 붙여 넣으면 발문·지문·보기를 나눠 줌
+function splitProblem(raw) {
+  let t = String(raw || '').replace(/\r/g, '').trim();
+  const out = { question: '', passage: '', choices: [] };
+  const ci = t.search(/①/);
+  if (ci >= 0) {
+    const tail = t.slice(ci); t = t.slice(0, ci).trim();
+    out.choices = tail.split(/[①②③④⑤]/).slice(1, 6).map((x) => squash(x));
+  }
+  const lines = t.split('\n');
+  const qi = lines.findIndex((l) => /(것은|것을|것\s*은|가장 적절한|고르시오|\?)\s*[\[\(]?.{0,12}$/.test(l.trim()) && l.trim().length < 90);
+  if (qi >= 0 && qi < 3) { out.question = squash(lines[qi].replace(/^\s*\d+\s*[.)]\s*/, '')); lines.splice(qi, 1); }
+  out.passage = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  return out;
+}
+const QSTEMS = ['다음 글의 주제로 가장 적절한 것은?', '다음 글의 제목으로 가장 적절한 것은?', '다음 글의 요지로 가장 적절한 것은?', '다음 글에서 필자가 주장하는 바로 가장 적절한 것은?', '다음 글의 목적으로 가장 적절한 것은?', '밑줄 친 부분이 다음 글에서 의미하는 바로 가장 적절한 것은?'];
+function openPassageEdit(s) {
+  if (!s) return;
+  const key = passageKey(s), p = passageOf(s) || { passage: '', question: '', choices: [], answer: null, explanation: '' };
+  const ch = [0, 1, 2, 3, 4].map((i) => (p.choices || [])[i] || '');
+  openModal(`
+    <div class="mh"><h3>독해적용 지문 ${p.id ? '고치기' : '넣기'}</h3><button class="icon" data-close>✕</button></div>
+    <div class="mb">
+      <p class="small" style="margin:0 0 10px">${key.startsWith('s:') ? '출처가 없는 문장이라 <b>이 문장에만</b> 붙여요. 문장 관리에서 출처를 적으면 같은 지문 문장끼리 함께 써요.' : `출처 <b>${esc(key)}</b> — 이 출처의 문장 모두가 이 지문을 함께 써요.`}</p>
+      <label>지문 <span class="small">— 문제를 통째로 붙여 넣고 아래 <b>나누기</b>를 눌러도 돼요</span><textarea id="psText" rows="9" placeholder="지문 영어 원문">${esc(p.passage || '')}</textarea></label>
+      <div style="display:flex;gap:8px;align-items:center;margin:-4px 0 10px"><button class="btn sm" id="psSplit" type="button">붙여 넣은 문제 나누기 (발문·지문·①~⑤)</button><span class="small" id="psSplitMsg"></span></div>
+      <label>발문<input id="psQ" maxlength="200" value="${esc(p.question || '')}" placeholder="예: 다음 글의 주제로 가장 적절한 것은?"></label>
+      <div class="chips" style="margin:-4px 0 10px">${QSTEMS.map((q, i) => `<button type="button" class="chip" data-qs="${i}">${esc(q.replace(/^다음 글(의|에서)\s*/, '').replace(/로 가장 적절한 것은\?$/, ''))}</button>`).join('')}</div>
+      <div class="ps-ch">${ch.map((c, i) => `<label class="ps-c"><span>${CIRC[i]}</span><input data-psc="${i}" maxlength="300" value="${esc(c)}" placeholder="보기 ${i + 1} (한글)"><input type="radio" name="psAns" value="${i + 1}" ${p.answer === i + 1 ? 'checked' : ''} title="정답"><small>정답</small></label>`).join('')}</div>
+      <label>해설 <span class="small">(선택 — 정답 보기 때 함께 보여요)</span><textarea id="psEx" rows="3">${esc(p.explanation || '')}</textarea></label>
+    </div>
+    <div class="mf">${p.id ? '<button class="btn danger ghost" id="psDel">지문 삭제</button>' : ''}<span class="grow"></span><button class="btn ghost" data-close>취소</button><button class="btn primary" id="psGo">저장</button></div>`);
+  $('psSplit').onclick = () => {
+    const r = splitProblem($('psText').value);
+    if (!r.choices.length && !r.question) return ($('psSplitMsg').textContent = '①~⑤나 발문을 찾지 못했어요. 칸에 직접 나눠 적어 주세요.');
+    $('psText').value = r.passage; if (r.question) $('psQ').value = r.question;
+    r.choices.forEach((c, i) => { const el = document.querySelector(`[data-psc="${i}"]`); if (el) el.value = c; });
+    $('psSplitMsg').textContent = `발문 ${r.question ? '✓' : '—'} · 보기 ${r.choices.length}개 나눴어요. 정답만 골라 주세요.`;
+  };
+  document.querySelectorAll('[data-qs]').forEach((b) => { b.onclick = () => { $('psQ').value = QSTEMS[+b.dataset.qs]; }; });
+  $('psGo').onclick = async () => {
+    const passage = $('psText').value.trim();
+    if (!passage) return toast('지문을 넣어 주세요.', true);
+    const choices = [0, 1, 2, 3, 4].map((i) => document.querySelector(`[data-psc="${i}"]`).value.trim());
+    const a = document.querySelector('input[name=psAns]:checked');
+    const row = { src_key: key, passage, question: $('psQ').value.trim() || null, choices: choices.some(Boolean) ? choices : [], answer: a ? Number(a.value) : null, explanation: $('psEx').value.trim() || null };
+    const { data, error } = await sb.from('drill_passages').upsert(row, { onConflict: 'src_key' }).select().single();
+    if (error) return toast(/drill_passages|relation|schema cache/.test(error.message || '') ? '지문 저장 칸이 아직 준비되지 않았어요. 관리자에게 알려 주세요.' : errText(error), true);
+    D.passages = D.passages.filter((x) => x.src_key !== key).concat(data);
+    R.key = null; closeModal(); drawChunks(); toast('지문을 저장했어요.');
+  };
+  if (p.id) $('psDel').onclick = async () => {
+    if (!await confirmBox('지문 삭제', `${key} 지문과 문제를 지울까요? 문장은 그대로 남아요.`)) return;
+    const { error } = await sb.from('drill_passages').delete().eq('id', p.id);
+    if (error) return toast(errText(error), true);
+    D.passages = D.passages.filter((x) => x.id !== p.id); R.key = null; drawChunks(); toast('지문을 지웠어요.');
+  };
+}
 $('auto').onchange = (e) => { O.auto = e.target.checked; saveOpts(); };
 $('prev').onclick = () => go(-1);
 $('next').onclick = () => go(1);
@@ -1786,6 +1927,7 @@ document.querySelector('.controls').addEventListener('click', (e) => { const b =
 $('fs').onclick = () => toggleFs();
 function go(d) {
   if (!C.list.length) return;
+  if (O.mode === 'read') return goPassage(d);
   const j = Math.min(C.list.length - 1, Math.max(0, C.idx + d));
   if (j === C.idx) return;
   stop(); C.idx = j; saveClass(); renderPl(); renderStage(); preloadAround();
@@ -1992,7 +2134,7 @@ async function run() {
     for (;;) {
       const cs = curSent();
       if (cs.audio_en) {
-        const ok = await playSentence(cs, O.mode, tok);
+        const ok = await playSentence(cs, O.mode === 'read' ? 'full' : O.mode, tok);
         if (!ok || tok !== P.tok) break;
       } else if (!O.auto) { toast('이 문장은 아직 음성이 없어요. 문장 관리에서 ↻를 눌러 만들어 주세요.', true); break; }
       if (!O.auto || C.idx >= C.list.length - 1) break;
@@ -2165,7 +2307,8 @@ document.addEventListener('keydown', (e) => {
   if (k === ' ') { e.preventDefault(); run(); }
   else if (k === 'ArrowLeft') { e.preventDefault(); go(-1); }
   else if (k === 'ArrowRight') { e.preventDefault(); go(1); }
-  else if (k >= '1' && k <= '3') setMode(['full', 'chunk', 'drill'][+k - 1]);
+  else if (k >= '1' && k <= '4') setMode(['full', 'chunk', 'drill', 'read'][+k - 1]);
+  else if ((k === 'a' || k === 'A' || k === 'ㅁ') && O.mode === 'read') toggleAnswer();
   else if (k === 'Escape') { e.preventDefault(); stop(); }
   else if ((k === 'h' || k === 'H' || k === 'ㅗ') && O.mode !== 'drill') { O.enView = { show: 'initial', initial: 'hide', hide: 'show' }[O.enView]; saveOpts(); syncControls(); drawChunks(); }
   else if ((k === 'k' || k === 'K' || k === 'ㅏ') && O.mode !== 'drill') { O.koView = O.koView === 'show' ? 'hide' : 'show'; saveOpts(); syncControls(); drawChunks(); }

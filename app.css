@@ -538,3 +538,36 @@ canvas.ink.hide{visibility:hidden}
 .chip.chap small{color:#c9cfdb}
 .ck .ck-en{margin-top:8px;height:30px;padding:0 12px;border-radius:15px;border:1px solid #2c3650;background:rgba(255,255,255,.06);color:#cfd5e3;font-size:12.5px;font-weight:700;cursor:pointer}
 .ck .ck-en:hover{background:var(--acc);color:#1a1408;border-color:var(--acc)}
+/* ===== 4. 독해적용 (칠판용: 검은 바탕, 흰 글자, 한글 보기 크게) ===== */
+#stChunks.reading{display:block;align-content:normal;padding:6px 0 10px;overflow:auto}
+.rd{--rd:1.2;display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,1fr);gap:clamp(20px,3vw,48px);align-items:start;max-width:1500px;margin:0 auto}
+@media (max-width:980px){.rd{grid-template-columns:1fr}}
+.rd-p{font-family:Georgia,'Times New Roman',serif;font-size:calc(18px * var(--rd));line-height:1.78;color:#f3f1ea;letter-spacing:.005em;text-align:justify;hyphens:auto;word-break:normal}
+.rd-p mark{background:rgba(217,149,43,.16);color:#ffe7b8;border-bottom:2px solid rgba(217,149,43,.55);border-radius:3px;padding:1px 2px;cursor:pointer}
+.rd-p mark.cur{background:rgba(217,149,43,.32);color:#fff;border-bottom-color:#f1b34d}
+.rd-side{display:flex;flex-direction:column;gap:14px;position:sticky;top:0}
+.rd-q{font-size:calc(17px * var(--rd));font-weight:800;color:#fff;line-height:1.5;padding-bottom:12px;border-bottom:1px solid #2c3650}
+.rd-ch{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+.rd-ch li{display:flex;gap:12px;align-items:flex-start;padding:11px 14px;border-radius:12px;background:#1a2235;border:1.5px solid #2c3650;cursor:pointer;font-size:calc(17px * var(--rd));line-height:1.5;color:#f3f1ea;font-weight:600;word-break:keep-all}
+.rd-ch li:hover{border-color:#4a5675}
+.rd-ch li:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.rd-ch li .no{flex-shrink:0;font-weight:800;color:#f1b34d;min-width:1.2em}
+.rd-ch li .tx{flex:1}
+.rd-ch li.pick{border-color:#7fb0ff;background:#1d2e4f}
+.rd-ch li.ok{border-color:#4fc47c;background:#17402a;color:#fff}
+.rd-ch li.ok .no{color:#7ee2a3}
+.rd-ch li.no{border-color:#e0626a;background:#46202a;color:#ffd9dc}
+.rd-ch li .mk{flex-shrink:0;align-self:center;font-size:12px;font-weight:800;background:#4fc47c;color:#0f2a1a;padding:3px 8px;border-radius:6px}
+.rd-ex{font-size:calc(15px * var(--rd));line-height:1.65;color:#d8dbe6;background:#151c2c;border-left:3px solid var(--acc);padding:12px 14px;border-radius:8px}
+.rd-ex b{display:block;color:#f1b34d;font-size:13px;margin-bottom:4px;letter-spacing:.04em}
+.rd-none,.rd-warn{color:var(--stage-dim);font-size:14px;margin:0}
+.rd-warn{text-align:center;margin-top:14px}
+.controls .rdopts{display:flex;gap:8px;align-items:center;background:none;padding:0}
+.controls .rdopts .seg{margin:0}
+.btn.acc{background:var(--acc);border-color:var(--acc);color:#1a1408;font-weight:800}
+.ps-ch{display:flex;flex-direction:column;gap:6px;margin:0 0 12px}
+.ps-c{display:flex !important;align-items:center;gap:8px;margin:0 !important}
+.ps-c > span{font-weight:800;color:var(--acc2);width:18px}
+.ps-c input[data-psc]{flex:1}
+.ps-c input[type=radio]{width:auto;margin:0}
+.ps-c small{font-size:11px;color:var(--ink3)}

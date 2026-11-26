@@ -9,7 +9,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<link rel="stylesheet" href="app.css?v=32">
+<link rel="stylesheet" href="app.css?v=33">
 </head>
 <body>
 
@@ -146,6 +146,7 @@
           <button data-mode="full" class="on"><b>1</b> 전체듣기</button>
           <button data-mode="chunk"><b>2</b> 끊어듣기</button>
           <button data-mode="drill"><b>3</b> 직독직해 <small>우리말→영어</small></button>
+          <button data-mode="read"><b>4</b> 독해적용 <small>지문·5지선다</small></button>
         </div>
         <div class="cgroup transport">
           <button class="tbtn" id="prev" title="이전 문장 (←)">◀︎</button>
@@ -181,10 +182,15 @@
             <span class="seg-l">우리말</span>
             <button data-v="show" class="on">보이기</button><button data-v="hide">가리기</button>
           </div>
+          <div class="seg rdopts" id="readOpts" hidden>
+            <div class="seg" id="rdSize" title="지문 글자 크기"><span class="seg-l">글자</span><button data-v="1">보통</button><button data-v="1.2" class="on">크게</button><button data-v="1.4">아주 크게</button></div>
+            <button class="btn sm acc" id="rdAns" title="정답 보기 (A)">정답 보기 (A)</button>
+            <button class="btn ghost sm" id="rdEdit" title="지문·문제 고치기">지문·문제 고치기</button>
+          </div>
           <span class="grow"></span>
           <button class="btn ghost sm" id="fs" title="전체 화면 (F)">전체 화면</button>
         </div>
-        <p class="keys">단축키: Space 재생·일시정지 · Esc 정지 · ← → 문장 이동 · 1~3 모드 · H 영어 가리기 · K 우리말 (1·2번 모드) · F 전체 화면 · 의미구 클릭: 그 부분 듣기(직독직해는 우리말) · 호흡 줄의 우리말·영어 버튼(판서 중에도) · Shift+숫자 · D 판서 · E 지우개 · G 형광펜 · Z 되돌리기 · C 판서 지우기 · V 판서 숨기기</p>
+        <p class="keys">단축키: Space 재생·일시정지 · Esc 정지 · ← → 문장 이동 · 1~4 모드 · H 영어 가리기 · K 우리말 (1·2번 모드) · F 전체 화면 · 의미구 클릭: 그 부분 듣기(직독직해는 우리말) · 호흡 줄의 우리말·영어 버튼(판서 중에도) · Shift+숫자 · D 판서 · E 지우개 · G 형광펜 · Z 되돌리기 · C 판서 지우기 · V 판서 숨기기 · 4번 독해적용: ← → 지문 이동 · A 정답 보기 · 보기 클릭: 학생 답 표시</p>
       </div>
     </main>
   </section>
@@ -234,6 +240,6 @@
 <div class="toast" id="toast" role="status"></div>
 
 <script src="supabase.js"></script>
-<script src="app.js?v=46"></script>
+<script src="app.js?v=47"></script>
 </body>
 </html>
