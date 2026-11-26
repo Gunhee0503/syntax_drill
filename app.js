@@ -1793,7 +1793,23 @@ function setMode(m) { stop(); unpeek(); O.mode = m; saveOpts(); syncControls(); 
 const CIRC = ['①', '②', '③', '④', '⑤'];
 // 지문은 문장 출처(예: 2026 고2 9월 모의고사 29번)로 묶음. 출처가 없으면 그 문장에만 붙임
 const passageKey = (s) => (s ? (srcParts(s.source).label || squash(s.source_label) || `s:${s.id}`) : null);
-const passageOf = (s) => D.passages.find((p) => p.src_key === passageKey(s)) || null;
+// 구문의 지도(BEACON·COMPASS) 문장은 그 앱의 독해 문제(요지·제목 5지선다)를 그대로 가져와 씀 — beacon_rd.json
+// 선생님이 고쳐 저장하면 그 저장본(drill_passages)이 우선
+let BRD = null, brdLoading = null;
+const normKey = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function loadBRD() {
+  if (BRD || brdLoading) return brdLoading;
+  brdLoading = fetch('beacon_rd.json?v=1').then((r) => r.json()).catch(() => ({})).then((d) => { BRD = d; if (O.mode === 'read' && curSent()) drawChunks(); });
+  return brdLoading;
+}
+function beaconPassage(s) {
+  if (!BRD) return null;
+  const list = BRD[normKey(sentText(s))]; if (!list || !list.length) return null;
+  const ed = /COMPASS/.test(s.category || '') ? 'COMPASS' : /BEACON/.test(s.category || '') ? 'BEACON' : '';
+  const q = list.find((x) => x.ed === ed) || list[0];
+  return { ...q, src_key: passageKey(s), from: `구문의 지도 ${q.ed}` };
+}
+const passageOf = (s) => D.passages.find((p) => p.src_key === passageKey(s)) || beaconPassage(s) || null;
 const sentText = (s) => squash(s.text || chunksOf(s).map((c) => c.en).join(' '));
 const normQ = (t) => String(t).replace(/[\u2018\u2019\u02BC]/g, "'").replace(/[\u201C\u201D]/g, '"').replace(/[\u2013\u2014]/g, '-');   // 글자 수 그대로
 const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -1819,6 +1835,7 @@ function drawReading() {
   const s = curSent(), p = passageOf(s), key = passageKey(s);
   if (R.key !== key) { R.key = key; R.pick = null; R.show = false; syncControls(); }
   $('stChunks').classList.remove('tap');
+  if (!p && !BRD) { $('stChunks').innerHTML = '<div class="empty-stage">지문을 불러오는 중…</div>'; loadBRD(); return; }
   if (!p) {
     $('stChunks').innerHTML = `<div class="empty-stage">이 문장이 나온 지문이 아직 없어요.<br><span class="small">${esc(key.startsWith('s:') ? '출처가 없는 문장 — 이 문장에만 지문을 붙여요' : key)}</span><br><button class="btn primary" id="rdAdd" style="margin-top:14px">지문·문제 넣기</button></div>`;
     $('rdAdd').onclick = () => openPassageEdit(s);
@@ -1829,6 +1846,7 @@ function drawReading() {
   $('stChunks').innerHTML = `<div class="rd" style="--rd:${O.rdSize}">
     <div class="rd-p">${ph.html}</div>
     <div class="rd-side">
+      ${p.from || p.type ? `<div class="rd-tag">${esc([p.from, p.type].filter(Boolean).join(' · '))}</div>` : ''}
       ${p.question ? `<div class="rd-q">${esc(p.question)}</div>` : ''}
       ${ch.length ? `<ol class="rd-ch">${ch.map((c, i) => `<li class="${cls(i)}" data-ch="${i + 1}" role="button" tabindex="0"><span class="no">${CIRC[i]}</span><span class="tx">${esc(c)}</span>${R.show && p.answer === i + 1 ? '<span class="mk">정답</span>' : ''}</li>`).join('')}</ol>` : '<p class="rd-none">보기가 아직 없어요. 아래 <b>지문·문제 고치기</b>로 넣어 주세요.</p>'}
       ${R.show && p.explanation ? `<div class="rd-ex"><b>해설</b>${esc(p.explanation).replace(/\n/g, '<br>')}</div>` : ''}
