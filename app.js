@@ -1799,7 +1799,7 @@ let BRD = null, brdLoading = null;
 const normKey = (t) => String(t || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function loadBRD() {
   if (BRD || brdLoading) return brdLoading;
-  brdLoading = fetch('beacon_rd.json?v=1').then((r) => r.json()).catch(() => ({})).then((d) => { BRD = d; if (O.mode === 'read' && curSent()) drawChunks(); });
+  brdLoading = fetch('beacon_rd.json?v=2').then((r) => r.json()).catch(() => ({})).then((d) => { BRD = d; if (O.mode === 'read' && curSent()) drawChunks(); });
   return brdLoading;
 }
 function beaconPassage(s) {
